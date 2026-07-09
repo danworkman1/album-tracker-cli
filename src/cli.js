@@ -10,6 +10,14 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+async function waitForEnter(message) {
+  await prompts({
+    type: 'text',
+    name: 'continue',
+    message
+  });
+}
+
 async function main() {
   console.log('=============================================');
   console.log('      Spotify Album Tracker CLI 🎵           ');
@@ -320,6 +328,7 @@ async function main() {
       console.log('\nOutlook Calendar authentication is required.');
       try {
         await loginOutlook();
+        await waitForEnter('Outlook Calendar authentication successful. Press Enter to continue.');
       } catch (err) {
         console.error('❌ Outlook Calendar authentication failed:', err.message);
         return;
