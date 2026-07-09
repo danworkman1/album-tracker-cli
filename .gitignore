@@ -10,3 +10,7 @@ node_modules/
 
 # Generated output
 albums.ics
+
+.codebase-memory
+docs/superpowers
+docs/RUST-LEARNING-PLAN.md
