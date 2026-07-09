@@ -1,0 +1,11 @@
+node_modules/
+
+# Secrets — OAuth client creds and refresh tokens
+.env
+.env.*
+!.env.example
+.spotify-auth.json
+.google-auth.json
+
+# Generated output
+albums.ics
