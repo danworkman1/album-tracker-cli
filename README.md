@@ -18,6 +18,8 @@ It also integrates with Spotify to automatically highlight and pre-select upcomi
 
 ## Installation & Setup
 
+For the broader auth direction, including how this should work once the CLI ships with project-owned OAuth app IDs, see [docs/auth-strategy.md](docs/auth-strategy.md).
+
 ### 1. Install Dependencies
 Make sure you have Node.js (version 18+) installed. Clone or navigate to this folder and run:
 ```bash
@@ -31,21 +33,20 @@ To highlight and pre-select releases by your followed artists:
 3. Set the **App name** and **Description**.
 4. In the **Redirect URIs** field, enter: `http://localhost:8888/callback`.
 5. Check the Web API box (and accept terms), then click **Save**.
-6. Click **Settings** to find your **Client ID** and **Client Secret**.
+6. Click **Settings** to find your **Client ID**.
 7. Create a `.env` file in the root of this project:
    ```bash
    cp .env.example .env
    ```
-8. Paste your credentials into the `.env` file:
+8. Paste your client ID into the `.env` file:
    ```env
    SPOTIFY_CLIENT_ID=your_client_id
-   SPOTIFY_CLIENT_SECRET=your_client_secret
    ```
 9. Authenticate the CLI with your Spotify account by running:
    ```bash
    pnpm run login
    ```
-   This will open a browser window for you to log in and authorize the application. Once approved, the CLI will sync your followed artists.
+   This will open a browser window for you to log in and authorize the application. Once approved, the CLI will sync your followed artists. You can also skip this command and authenticate from the main `pnpm start` flow when prompted.
 
 ### 3. Configure Google Calendar Sync (Optional)
 To add events directly into a specific Google Calendar from the CLI:
@@ -101,4 +102,3 @@ If you chose to generate an `albums.ics` file:
 2. Click the **Settings gear** -> **Settings**.
 3. Click **Import & export** in the left sidebar.
 4. Click **Select file from your computer**, choose `albums.ics`, choose your target calendar, and click **Import**.
-
