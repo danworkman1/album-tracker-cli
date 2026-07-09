@@ -10,6 +10,14 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+async function waitForEnter(message) {
+  await prompts({
+    type: 'text',
+    name: 'continue',
+    message
+  });
+}
+
 async function main() {
   console.log('=============================================');
   console.log('      Spotify Album Tracker CLI 🎵           ');
@@ -149,7 +157,8 @@ async function main() {
     message: 'Select calendar destination:',
     choices: [
       { title: 'Local iCalendar file (.ics)', value: 'ics' },
-      { title: 'Google Calendar (Sync Directly)', value: 'google' }
+      { title: 'Google Calendar (Sync Directly)', value: 'google' },
+      { title: 'Outlook Calendar (Sync Directly)', value: 'outlook' }
     ]
   });
 
@@ -294,6 +303,93 @@ async function main() {
 
     console.log('\n=============================================');
     console.log('🎉 Google Calendar Sync Completed!');
+    console.log(` - Successfully added: ${successCount}`);
+    console.log(` - Already existed (skipped): ${duplicateCount}`);
+    console.log(` - Failed: ${failCount}`);
+    console.log('=============================================\n');
+  } else if (destinationPrompt.destination === 'outlook') {
+    const {
+      getOutlookCredentials,
+      loginOutlook,
+      getWritableOutlookCalendars,
+      addOutlookCalendarEvent
+    } = await import('./outlook-calendar.js');
+    const outlookCreds = getOutlookCredentials();
+    const isOutlookConfigured = outlookCreds.clientId;
+
+    if (!isOutlookConfigured) {
+      console.log('\n❌ Error: Outlook Calendar credentials not configured.');
+      console.log('Please set OUTLOOK_CLIENT_ID in your .env file.');
+      console.log('Then run `pnpm run login-outlook` to authenticate.\n');
+      return;
+    }
+
+    if (!outlookCreds.refreshToken) {
+      console.log('\nOutlook Calendar authentication is required.');
+      try {
+        await loginOutlook();
+        await waitForEnter('Outlook Calendar authentication successful. Press Enter to continue.');
+      } catch (err) {
+        console.error('❌ Outlook Calendar authentication failed:', err.message);
+        return;
+      }
+    }
+
+    let calendars = [];
+    try {
+      calendars = await getWritableOutlookCalendars();
+    } catch (err) {
+      console.error('❌ Failed to fetch Outlook Calendars:', err.message);
+      return;
+    }
+
+    if (calendars.length === 0) {
+      console.log('\n❌ No writable calendars found in your Outlook Account.');
+      return;
+    }
+
+    const calendarChoices = calendars.map(cal => ({
+      title: `${cal.summary}${cal.primary ? ' (Default)' : ''}`,
+      value: cal.id
+    }));
+
+    const calendarPrompt = await prompts({
+      type: 'select',
+      name: 'calendarId',
+      message: 'Select target Outlook Calendar:',
+      choices: calendarChoices
+    });
+
+    if (!calendarPrompt.calendarId) {
+      console.log('\nNo calendar selected. Exiting.');
+      return;
+    }
+
+    const calendarId = calendarPrompt.calendarId;
+    console.log(`\nAdding ${response.selectedAlbums.length} albums to Outlook Calendar...`);
+
+    let successCount = 0;
+    let duplicateCount = 0;
+    let failCount = 0;
+
+    for (const album of response.selectedAlbums) {
+      try {
+        const res = await addOutlookCalendarEvent(calendarId, album, album.year);
+        if (res.status === 'success') {
+          console.log(`✓ Added: ${album.artist} - ${album.album}`);
+          successCount++;
+        } else if (res.status === 'duplicate') {
+          console.log(`- Already exists (skipped): ${album.artist} - ${album.album}`);
+          duplicateCount++;
+        }
+      } catch (err) {
+        console.error(`✗ Failed to add: ${album.artist} - ${album.album}:`, err.message);
+        failCount++;
+      }
+    }
+
+    console.log('\n=============================================');
+    console.log('🎉 Outlook Calendar Sync Completed!');
     console.log(` - Successfully added: ${successCount}`);
     console.log(` - Already existed (skipped): ${duplicateCount}`);
     console.log(` - Failed: ${failCount}`);

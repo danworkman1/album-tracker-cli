@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/cli.js",
     "login": "node src/spotify.js --login",
-    "login-google": "node src/google-calendar.js --login"
+    "login-google": "node src/google-calendar.js --login",
+    "login-outlook": "node src/outlook-calendar.js --login"
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
