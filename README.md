@@ -12,6 +12,7 @@ It also integrates with Spotify to automatically highlight and pre-select upcomi
 - **Interactive Multi-select:** Search and filter through albums using a searchable CLI checklist.
 - **Spotify Integration (Optional):** Logs in via Spotify OAuth, fetches your followed artists, lists their upcoming releases at the top of the terminal menu, and pre-checks them for you.
 - **All-Day Calendar Events:** Generates clean all-day events on the album release date.
+- **Direct Calendar Sync:** Adds selected releases directly to Google Calendar or Outlook Calendar.
 - **Direct Spotify Links:** Each calendar event includes a search link (`https://open.spotify.com/search/...`) for that album, letting you listen with a single click.
 
 ---
@@ -66,6 +67,27 @@ To add events directly into a specific Google Calendar from the CLI:
    pnpm run login-google
    ```
 
+### 4. Configure Outlook Calendar Sync (Optional)
+To add events directly into a specific Outlook Calendar from the CLI:
+1. Go to the [Microsoft Azure App registrations page](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
+2. Click **New registration**.
+3. Choose the supported account types you want. Use **Accounts in any organizational directory and personal Microsoft accounts** if you want both work/school and personal Outlook accounts.
+4. Add a **Mobile and desktop applications** redirect URI: `http://localhost:8890/callback`.
+5. After registration, copy the **Application (client) ID**.
+6. Paste it into your `.env` file:
+   ```env
+   OUTLOOK_CLIENT_ID=your_outlook_client_id
+   OUTLOOK_TENANT_ID=common
+   ```
+7. If you instead configure the app as a confidential web application, create a client secret under **Certificates & secrets** and add it to `.env`:
+   ```env
+   OUTLOOK_CLIENT_SECRET=your_outlook_client_secret
+   ```
+8. Authenticate the CLI with your Microsoft account:
+   ```bash
+   pnpm run login-outlook
+   ```
+
 ---
 
 ## How to Run
@@ -80,6 +102,7 @@ pnpm start
 2. **Select Destination:** You will be prompted to select where to export:
    * **Local iCalendar file (.ics):** Generates an `albums.ics` file.
    * **Google Calendar (Sync Directly):** Prompts you to select a calendar from your Google account and creates the events automatically (preventing duplicates).
+   * **Outlook Calendar (Sync Directly):** Prompts you to select a calendar from your Microsoft account and creates the events automatically (preventing duplicates).
 
 ### Interface Controls:
 - **Up / Down Arrows:** Navigate the list.
@@ -101,4 +124,3 @@ If you chose to generate an `albums.ics` file:
 2. Click the **Settings gear** -> **Settings**.
 3. Click **Import & export** in the left sidebar.
 4. Click **Select file from your computer**, choose `albums.ics`, choose your target calendar, and click **Import**.
-
