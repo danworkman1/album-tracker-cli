@@ -305,7 +305,7 @@ async function main() {
 
   // Suggestions and the A-Z list share album object references for anything
   // that appears in both, so dedupe by reference before generating events.
-  const selectedAlbums = [...new Set(response.selectedAlbums)];
+  const selectedAlbums = [...new Set(response.selectedAlbums)].filter(Boolean);
 
   if (calendarChoice.destination === 'ics') {
     const outputPath = path.resolve('albums.ics');
