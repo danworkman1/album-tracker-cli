@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
-import { exec } from 'child_process';
+import crypto from 'crypto';
 import open from 'open';
 import dotenv from 'dotenv';
 
@@ -12,11 +12,31 @@ const AUTH_FILE = path.resolve('.spotify-auth.json');
 const REDIRECT_PORT = 8888;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 
-/**
- * Helper to encode credentials to Base64.
- */
-function getBasicAuthHeader(clientId, clientSecret) {
-  return 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+function base64UrlEncode(buffer) {
+  return buffer
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function createPkcePair() {
+  const verifier = base64UrlEncode(crypto.randomBytes(64));
+  const challenge = base64UrlEncode(crypto.createHash('sha256').update(verifier).digest());
+  return { verifier, challenge };
+}
+
+function buildTokenParams(creds, params) {
+  const body = new URLSearchParams({
+    client_id: creds.clientId,
+    ...params
+  });
+
+  if (creds.clientSecret) {
+    body.set('client_secret', creds.clientSecret);
+  }
+
+  return body;
 }
 
 /**
@@ -61,7 +81,7 @@ export function saveCredentials(data) {
  */
 export async function refreshAccessToken() {
   const creds = getCredentials();
-  if (!creds.refreshToken || !creds.clientId || !creds.clientSecret) {
+  if (!creds.refreshToken || !creds.clientId) {
     throw new Error('Spotify is not logged in or client credentials are missing.');
   }
 
@@ -74,10 +94,9 @@ export async function refreshAccessToken() {
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': getBasicAuthHeader(creds.clientId, creds.clientSecret)
+      'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body: new URLSearchParams({
+    body: buildTokenParams(creds, {
       grant_type: 'refresh_token',
       refresh_token: creds.refreshToken
     })
@@ -105,11 +124,14 @@ export async function refreshAccessToken() {
  */
 export async function login() {
   const creds = getCredentials();
-  if (!creds.clientId || !creds.clientSecret) {
-    console.error('\nError: SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in your .env file.');
+  if (!creds.clientId) {
+    console.error('\nError: SPOTIFY_CLIENT_ID must be set in your .env file.');
     console.error('Please refer to .env.example to set up your environment variables.\n');
     process.exit(1);
   }
+
+  const pkce = createPkcePair();
+  const state = crypto.randomBytes(16).toString('hex');
 
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
@@ -117,6 +139,7 @@ export async function login() {
       if (reqUrl.pathname === '/callback') {
         const code = reqUrl.searchParams.get('code');
         const error = reqUrl.searchParams.get('error');
+        const returnedState = reqUrl.searchParams.get('state');
 
         if (error) {
           res.writeHead(400, { 'Content-Type': 'text/html' });
@@ -126,18 +149,26 @@ export async function login() {
           return;
         }
 
+        if (returnedState !== state) {
+          res.writeHead(400, { 'Content-Type': 'text/html' });
+          res.end('<h1>Spotify Authentication Failed</h1><p>Invalid state parameter.</p>');
+          server.close();
+          reject(new Error('Invalid Spotify OAuth state parameter'));
+          return;
+        }
+
         try {
           // Exchange code for token
           const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'Authorization': getBasicAuthHeader(creds.clientId, creds.clientSecret)
+              'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: new URLSearchParams({
+            body: buildTokenParams(creds, {
               grant_type: 'authorization_code',
               code,
-              redirect_uri: REDIRECT_URI
+              redirect_uri: REDIRECT_URI,
+              code_verifier: pkce.verifier
             })
           });
 
@@ -183,7 +214,10 @@ export async function login() {
         client_id: creds.clientId,
         response_type: 'code',
         redirect_uri: REDIRECT_URI,
-        scope: 'user-follow-read'
+        scope: 'user-follow-read',
+        state,
+        code_challenge_method: 'S256',
+        code_challenge: pkce.challenge
       }).toString();
 
       console.log('\nOpening Spotify login in your browser...');

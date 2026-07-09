@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { getUpcomingAlbums } from './scraper.js';
 import { generateICS, parseWikiDate } from './calendar.js';
-import { getCredentials, syncFollowedArtists } from './spotify.js';
+import { getCredentials, login, syncFollowedArtists } from './spotify.js';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -25,12 +25,30 @@ async function main() {
 
   const creds = getCredentials();
   let followedArtists = creds.followedArtists || [];
-  const isSpotifyConfigured = creds.clientId && creds.clientSecret;
+  const isSpotifyConfigured = Boolean(creds.clientId);
 
   if (isSpotifyConfigured) {
     if (!creds.refreshToken) {
-      console.log('Spotify credentials detected but you are not logged in.');
-      console.log('Run `npm run login` to authenticate with Spotify to highlight followed artists.\n');
+      const spotifyPrompt = await prompts({
+        type: 'confirm',
+        name: 'connectSpotify',
+        message: 'Spotify is configured. Connect now to highlight followed artists?',
+        initial: true
+      });
+
+      if (spotifyPrompt.connectSpotify) {
+        try {
+          await login();
+          await waitForEnter('Spotify authentication successful. Press Enter to continue.');
+          followedArtists = await syncFollowedArtists();
+          console.log(`Synced followed artists. Found ${followedArtists.length} followed artists.\n`);
+        } catch (err) {
+          console.log(`⚠️  Could not authenticate Spotify: ${err.message}`);
+          console.log('Continuing without Spotify personalization.\n');
+        }
+      } else {
+        console.log('Continuing without Spotify personalization.\n');
+      }
     } else {
       try {
         // Try refreshing and syncing followed artists to keep the cache fresh
@@ -42,7 +60,7 @@ async function main() {
       }
     }
   } else {
-    console.log('💡 Tip: Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env');
+    console.log('💡 Tip: Set SPOTIFY_CLIENT_ID in .env');
     console.log('to automatically highlight and pre-select your followed artists!\n');
   }
 
@@ -242,6 +260,7 @@ async function main() {
       console.log('\nGoogle Calendar authentication is required.');
       try {
         await loginGoogle();
+        await waitForEnter('Google Calendar authentication successful. Press Enter to continue.');
       } catch (err) {
         console.error('❌ Google Calendar authentication failed:', err.message);
         return;
