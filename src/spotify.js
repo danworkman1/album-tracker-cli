@@ -214,7 +214,7 @@ export async function login() {
         client_id: creds.clientId,
         response_type: 'code',
         redirect_uri: REDIRECT_URI,
-        scope: 'user-follow-read',
+        scope: 'user-follow-read user-top-read',
         state,
         code_challenge_method: 'S256',
         code_challenge: pkce.challenge
@@ -270,6 +270,36 @@ export async function syncFollowedArtists() {
   saveCredentials({ followedArtists: artists });
   console.log(`Successfully synced ${artists.length} followed artists!`);
   return artists;
+}
+
+/**
+ * Fetches the user's long-term top artists (most played over ~years),
+ * ranked by listening history. Used to break ties when more than 10
+ * followed artists have upcoming releases.
+ */
+export async function getTopArtists() {
+  const token = await refreshAccessToken();
+
+  const url = 'https://api.spotify.com/v1/me/top/artists?' + new URLSearchParams({
+    time_range: 'long_term',
+    limit: '50'
+  }).toString();
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch top artists: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  return data.items.map((artist, index) => ({
+    name: artist.name,
+    rank: index + 1
+  }));
 }
 
 // Support running login directly from the npm script

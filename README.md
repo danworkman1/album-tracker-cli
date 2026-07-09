@@ -99,17 +99,18 @@ pnpm start
 ```
 
 ### Flow:
-1. **Interactive Checklist:** Navigate, search, and toggle selections.
-2. **Select Destination:** You will be prompted to select where to export:
+1. **Connect Spotify (optional):** If configured, you'll be asked to connect so your followed artists can be highlighted and ranked.
+2. **Choose your calendar destination:** Pick where releases should go before you see any albums:
    * **Local iCalendar file (.ics):** Generates an `albums.ics` file.
-   * **Google Calendar (Sync Directly):** Prompts you to select a calendar from your Google account and creates the events automatically (preventing duplicates).
-   * **Outlook Calendar (Sync Directly):** Prompts you to select a calendar from your Microsoft account and creates the events automatically (preventing duplicates).
+   * **Google Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Google account; events are created automatically (preventing duplicates).
+   * **Outlook Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Microsoft account; events are created automatically (preventing duplicates).
+3. **Interactive Checklist:** Navigate, search, and toggle selections. If you're connected to Spotify, a **Top 10 Suggestions** block (ranked by your followed artists) appears first, followed by the complete album list in alphabetical order by artist (A–Z) so you can browse everything.
 
 ### Interface Controls:
 - **Up / Down Arrows:** Navigate the list.
 - **Spacebar:** Toggle selection (check/uncheck).
 - **Type Letters:** Filter/search the list of albums.
-- **Enter:** Confirm and proceed to destination choice.
+- **Enter:** Confirm and generate/sync your calendar using the destination you chose in step 2.
 
 ---
 

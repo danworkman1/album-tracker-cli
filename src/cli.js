@@ -2,13 +2,9 @@ import prompts from 'prompts';
 import path from 'path';
 import fs from 'fs';
 import { getUpcomingAlbums } from './scraper.js';
-import { generateICS, parseWikiDate } from './calendar.js';
-import { getCredentials, login, syncFollowedArtists } from './spotify.js';
-
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
+import { parseWikiDate } from './calendar.js';
+import { getCredentials, login, syncFollowedArtists, getTopArtists } from './spotify.js';
+import { MONTH_NAMES, buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
 
 async function waitForEnter(message) {
   await prompts({
@@ -18,6 +14,144 @@ async function waitForEnter(message) {
   });
 }
 
+/**
+ * Prompts for a calendar destination and completes any required auth/calendar
+ * selection upfront, before the user has picked any albums. Exits the
+ * process on setup failure or if the user backs out of a prompt.
+ */
+async function chooseCalendarDestination() {
+  const destinationPrompt = await prompts({
+    type: 'select',
+    name: 'destination',
+    message: 'Select calendar destination:',
+    choices: [
+      { title: 'Local iCalendar file (.ics)', value: 'ics' },
+      { title: 'Google Calendar (Sync Directly)', value: 'google' },
+      { title: 'Outlook Calendar (Sync Directly)', value: 'outlook' }
+    ]
+  });
+
+  if (!destinationPrompt.destination) {
+    console.log('\nNo destination selected. Exiting.');
+    process.exit(0);
+  }
+
+  if (destinationPrompt.destination === 'ics') {
+    return { destination: 'ics' };
+  }
+
+  if (destinationPrompt.destination === 'google') {
+    const { getGoogleCredentials, loginGoogle, getWritableCalendars } = await import('./google-calendar.js');
+    const googleCreds = getGoogleCredentials();
+    const isGoogleConfigured = googleCreds.clientId && googleCreds.clientSecret;
+
+    if (!isGoogleConfigured) {
+      console.log('\n❌ Error: Google Calendar credentials not configured.');
+      console.log('Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.');
+      console.log('Then run `pnpm run login-google` to authenticate.\n');
+      process.exit(1);
+    }
+
+    if (!googleCreds.refreshToken) {
+      console.log('\nGoogle Calendar authentication is required.');
+      try {
+        await loginGoogle();
+        await waitForEnter('Google Calendar authentication successful. Press Enter to continue.');
+      } catch (err) {
+        console.error('❌ Google Calendar authentication failed:', err.message);
+        process.exit(1);
+      }
+    }
+
+    let calendars = [];
+    try {
+      calendars = await getWritableCalendars();
+    } catch (err) {
+      console.error('❌ Failed to fetch Google Calendars:', err.message);
+      process.exit(1);
+    }
+
+    if (calendars.length === 0) {
+      console.log('\n❌ No writable calendars found in your Google Account.');
+      process.exit(1);
+    }
+
+    const calendarChoices = calendars.map(cal => ({
+      title: `${cal.summary}${cal.primary ? ' (Primary)' : ''}`,
+      value: cal.id
+    }));
+
+    const calendarPrompt = await prompts({
+      type: 'select',
+      name: 'calendarId',
+      message: 'Select target Google Calendar:',
+      choices: calendarChoices
+    });
+
+    if (!calendarPrompt.calendarId) {
+      console.log('\nNo calendar selected. Exiting.');
+      process.exit(0);
+    }
+
+    return { destination: 'google', calendarId: calendarPrompt.calendarId };
+  }
+
+  // destination === 'outlook'
+  const { getOutlookCredentials, loginOutlook, getWritableOutlookCalendars } = await import('./outlook-calendar.js');
+  const outlookCreds = getOutlookCredentials();
+  const isOutlookConfigured = outlookCreds.clientId;
+
+  if (!isOutlookConfigured) {
+    console.log('\n❌ Error: Outlook Calendar credentials not configured.');
+    console.log('Please set OUTLOOK_CLIENT_ID in your .env file.');
+    console.log('Then run `pnpm run login-outlook` to authenticate.\n');
+    process.exit(1);
+  }
+
+  if (!outlookCreds.refreshToken) {
+    console.log('\nOutlook Calendar authentication is required.');
+    try {
+      await loginOutlook();
+      await waitForEnter('Outlook Calendar authentication successful. Press Enter to continue.');
+    } catch (err) {
+      console.error('❌ Outlook Calendar authentication failed:', err.message);
+      process.exit(1);
+    }
+  }
+
+  let calendars = [];
+  try {
+    calendars = await getWritableOutlookCalendars();
+  } catch (err) {
+    console.error('❌ Failed to fetch Outlook Calendars:', err.message);
+    process.exit(1);
+  }
+
+  if (calendars.length === 0) {
+    console.log('\n❌ No writable calendars found in your Outlook Account.');
+    process.exit(1);
+  }
+
+  const calendarChoices = calendars.map(cal => ({
+    title: `${cal.summary}${cal.primary ? ' (Default)' : ''}`,
+    value: cal.id
+  }));
+
+  const calendarPrompt = await prompts({
+    type: 'select',
+    name: 'calendarId',
+    message: 'Select target Outlook Calendar:',
+    choices: calendarChoices
+  });
+
+  if (!calendarPrompt.calendarId) {
+    console.log('\nNo calendar selected. Exiting.');
+    process.exit(0);
+  }
+
+  return { destination: 'outlook', calendarId: calendarPrompt.calendarId };
+}
+
 async function main() {
   console.log('=============================================');
   console.log('      Spotify Album Tracker CLI 🎵           ');
@@ -25,7 +159,19 @@ async function main() {
 
   const creds = getCredentials();
   let followedArtists = creds.followedArtists || [];
+  let topArtistRankMap = new Map();
   const isSpotifyConfigured = Boolean(creds.clientId);
+
+  async function loadTopArtistRanks() {
+    try {
+      const topArtists = await getTopArtists();
+      topArtistRankMap = buildTopArtistRankMap(topArtists);
+    } catch (err) {
+      console.log(`⚠️  Could not fetch ranked top artists: ${err.message}`);
+      console.log('If you connected Spotify before this feature was added, run `pnpm run login` again to enable ranked suggestions.');
+      console.log('Continuing with suggestions ordered by release date instead.\n');
+    }
+  }
 
   if (isSpotifyConfigured) {
     if (!creds.refreshToken) {
@@ -42,6 +188,7 @@ async function main() {
           await waitForEnter('Spotify authentication successful. Press Enter to continue.');
           followedArtists = await syncFollowedArtists();
           console.log(`Synced followed artists. Found ${followedArtists.length} followed artists.\n`);
+          await loadTopArtistRanks();
         } catch (err) {
           console.log(`⚠️  Could not authenticate Spotify: ${err.message}`);
           console.log('Continuing without Spotify personalization.\n');
@@ -54,6 +201,7 @@ async function main() {
         // Try refreshing and syncing followed artists to keep the cache fresh
         followedArtists = await syncFollowedArtists();
         console.log(`Synced followed artists. Found ${followedArtists.length} followed artists.\n`);
+        await loadTopArtistRanks();
       } catch (err) {
         console.log(`⚠️  Could not sync Spotify followed artists: ${err.message}`);
         console.log('Using cached followed artists instead.\n');
@@ -63,6 +211,8 @@ async function main() {
     console.log('💡 Tip: Set SPOTIFY_CLIENT_ID in .env');
     console.log('to automatically highlight and pre-select your followed artists!\n');
   }
+
+  const calendarChoice = await chooseCalendarDestination();
 
   const followedSet = new Set(followedArtists.map(a => a.name.toLowerCase()));
 
@@ -102,50 +252,34 @@ async function main() {
     return;
   }
 
-  // Cross-reference with followed artists and sort
+  // Cross-reference with followed artists
   const enrichedAlbums = allAlbums.map(album => {
     const isFollowed = followedSet.has(album.artist.toLowerCase());
     return {
       ...album,
       isFollowed,
-      // Keep track of release year for ICS generation
+      // Keep track of release year for ICS/calendar generation
       year: album.date.toLowerCase().includes(currentMonth.toLowerCase()) ? currentYear : nextMonthYear
     };
   });
 
-  // Sort: Followed artists first, then chronological order
-  // Chronological sorting helper: parse day from "Month Day" (e.g. "July 15")
-  const getDay = (dateStr) => {
-    const m = dateStr.match(/\d+/);
-    return m ? parseInt(m[0], 10) : 999;
-  };
+  const followedAlbums = enrichedAlbums.filter(album => album.isFollowed);
+  const suggestions = buildSuggestions(followedAlbums, topArtistRankMap);
+  const fullList = sortAlphabeticallyByArtist(enrichedAlbums);
 
-  enrichedAlbums.sort((a, b) => {
-    if (a.isFollowed && !b.isFollowed) return -1;
-    if (!a.isFollowed && b.isFollowed) return 1;
-    
-    // Sort by year first
-    if (a.year !== b.year) return a.year - b.year;
-
-    // Then sort by month order
-    const aMonthIdx = MONTH_NAMES.findIndex(m => a.date.includes(m));
-    const bMonthIdx = MONTH_NAMES.findIndex(m => b.date.includes(m));
-    if (aMonthIdx !== bMonthIdx) return aMonthIdx - bMonthIdx;
-
-    // Then sort by day
-    return getDay(a.date) - getDay(b.date);
+  const toChoice = (album) => ({
+    title: `${album.isFollowed ? '★ [Followed] ' : ''}${album.artist} - ${album.album} (${album.date})`,
+    value: album,
+    selected: album.isFollowed
   });
 
-  // Create choices for the terminal prompt
-  const choices = enrichedAlbums.map(album => {
-    const prefix = album.isFollowed ? '★ [Followed] ' : '';
-    const title = `${prefix}${album.artist} - ${album.album} (${album.date})`;
-    return {
-      title,
-      value: album,
-      selected: album.isFollowed // Pre-select followed artists!
-    };
-  });
+  const choices = suggestions.length > 0
+    ? [
+        ...suggestions.map(toChoice),
+        { title: '── Full List (A–Z) ──', value: null, disabled: true },
+        ...fullList.map(toChoice)
+      ]
+    : fullList.map(toChoice);
 
   console.log('\n--- INTERACTIVE SELECTION ---');
   console.log('Instructions:');
@@ -169,36 +303,24 @@ async function main() {
     return;
   }
 
-  const destinationPrompt = await prompts({
-    type: 'select',
-    name: 'destination',
-    message: 'Select calendar destination:',
-    choices: [
-      { title: 'Local iCalendar file (.ics)', value: 'ics' },
-      { title: 'Google Calendar (Sync Directly)', value: 'google' },
-      { title: 'Outlook Calendar (Sync Directly)', value: 'outlook' }
-    ]
-  });
+  // Suggestions and the A-Z list share album object references for anything
+  // that appears in both, so dedupe by reference before generating events.
+  const selectedAlbums = [...new Set(response.selectedAlbums)].filter(Boolean);
 
-  if (!destinationPrompt.destination) {
-    console.log('\nNo destination selected. Exiting.');
-    return;
-  }
-
-  if (destinationPrompt.destination === 'ics') {
+  if (calendarChoice.destination === 'ics') {
     const outputPath = path.resolve('albums.ics');
-    console.log(`\nGenerating calendar with ${response.selectedAlbums.length} albums...`);
+    console.log(`\nGenerating calendar with ${selectedAlbums.length} albums...`);
 
     try {
       // Generate the ICS file. Since albums can span two years (if run in December),
       // we use the stored year on each album object when formatting events.
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-      
-      const events = response.selectedAlbums.map(album => {
+      const icsNow = new Date();
+      const timestamp = icsNow.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+      const events = selectedAlbums.map(album => {
         const dates = parseWikiDate(album.date, album.year);
         if (!dates) return null;
-        
+
         const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '');
         const uid = `${sanitize(album.artist)}-${sanitize(album.album)}-${dates.start}@spotify-album-tracker`;
         const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${album.artist} ${album.album}`)}`;
@@ -244,67 +366,16 @@ async function main() {
     } catch (err) {
       console.error('❌ Failed to generate calendar:', err.message);
     }
-  } else if (destinationPrompt.destination === 'google') {
-    const { getGoogleCredentials, loginGoogle, getWritableCalendars, addGoogleCalendarEvent } = await import('./google-calendar.js');
-    const googleCreds = getGoogleCredentials();
-    const isGoogleConfigured = googleCreds.clientId && googleCreds.clientSecret;
-
-    if (!isGoogleConfigured) {
-      console.log('\n❌ Error: Google Calendar credentials not configured.');
-      console.log('Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.');
-      console.log('Then run `pnpm run login-google` to authenticate.\n');
-      return;
-    }
-
-    if (!googleCreds.refreshToken) {
-      console.log('\nGoogle Calendar authentication is required.');
-      try {
-        await loginGoogle();
-        await waitForEnter('Google Calendar authentication successful. Press Enter to continue.');
-      } catch (err) {
-        console.error('❌ Google Calendar authentication failed:', err.message);
-        return;
-      }
-    }
-
-    let calendars = [];
-    try {
-      calendars = await getWritableCalendars();
-    } catch (err) {
-      console.error('❌ Failed to fetch Google Calendars:', err.message);
-      return;
-    }
-
-    if (calendars.length === 0) {
-      console.log('\n❌ No writable calendars found in your Google Account.');
-      return;
-    }
-
-    const calendarChoices = calendars.map(cal => ({
-      title: `${cal.summary}${cal.primary ? ' (Primary)' : ''}`,
-      value: cal.id
-    }));
-
-    const calendarPrompt = await prompts({
-      type: 'select',
-      name: 'calendarId',
-      message: 'Select target Google Calendar:',
-      choices: calendarChoices
-    });
-
-    if (!calendarPrompt.calendarId) {
-      console.log('\nNo calendar selected. Exiting.');
-      return;
-    }
-
-    const calendarId = calendarPrompt.calendarId;
-    console.log(`\nAdding ${response.selectedAlbums.length} albums to Google Calendar...`);
+  } else if (calendarChoice.destination === 'google') {
+    const { addGoogleCalendarEvent } = await import('./google-calendar.js');
+    const calendarId = calendarChoice.calendarId;
+    console.log(`\nAdding ${selectedAlbums.length} albums to Google Calendar...`);
 
     let successCount = 0;
     let duplicateCount = 0;
     let failCount = 0;
 
-    for (const album of response.selectedAlbums) {
+    for (const album of selectedAlbums) {
       try {
         const res = await addGoogleCalendarEvent(calendarId, album, album.year);
         if (res.status === 'success') {
@@ -326,72 +397,16 @@ async function main() {
     console.log(` - Already existed (skipped): ${duplicateCount}`);
     console.log(` - Failed: ${failCount}`);
     console.log('=============================================\n');
-  } else if (destinationPrompt.destination === 'outlook') {
-    const {
-      getOutlookCredentials,
-      loginOutlook,
-      getWritableOutlookCalendars,
-      addOutlookCalendarEvent
-    } = await import('./outlook-calendar.js');
-    const outlookCreds = getOutlookCredentials();
-    const isOutlookConfigured = outlookCreds.clientId;
-
-    if (!isOutlookConfigured) {
-      console.log('\n❌ Error: Outlook Calendar credentials not configured.');
-      console.log('Please set OUTLOOK_CLIENT_ID in your .env file.');
-      console.log('Then run `pnpm run login-outlook` to authenticate.\n');
-      return;
-    }
-
-    if (!outlookCreds.refreshToken) {
-      console.log('\nOutlook Calendar authentication is required.');
-      try {
-        await loginOutlook();
-        await waitForEnter('Outlook Calendar authentication successful. Press Enter to continue.');
-      } catch (err) {
-        console.error('❌ Outlook Calendar authentication failed:', err.message);
-        return;
-      }
-    }
-
-    let calendars = [];
-    try {
-      calendars = await getWritableOutlookCalendars();
-    } catch (err) {
-      console.error('❌ Failed to fetch Outlook Calendars:', err.message);
-      return;
-    }
-
-    if (calendars.length === 0) {
-      console.log('\n❌ No writable calendars found in your Outlook Account.');
-      return;
-    }
-
-    const calendarChoices = calendars.map(cal => ({
-      title: `${cal.summary}${cal.primary ? ' (Default)' : ''}`,
-      value: cal.id
-    }));
-
-    const calendarPrompt = await prompts({
-      type: 'select',
-      name: 'calendarId',
-      message: 'Select target Outlook Calendar:',
-      choices: calendarChoices
-    });
-
-    if (!calendarPrompt.calendarId) {
-      console.log('\nNo calendar selected. Exiting.');
-      return;
-    }
-
-    const calendarId = calendarPrompt.calendarId;
-    console.log(`\nAdding ${response.selectedAlbums.length} albums to Outlook Calendar...`);
+  } else if (calendarChoice.destination === 'outlook') {
+    const { addOutlookCalendarEvent } = await import('./outlook-calendar.js');
+    const calendarId = calendarChoice.calendarId;
+    console.log(`\nAdding ${selectedAlbums.length} albums to Outlook Calendar...`);
 
     let successCount = 0;
     let duplicateCount = 0;
     let failCount = 0;
 
-    for (const album of response.selectedAlbums) {
+    for (const album of selectedAlbums) {
       try {
         const res = await addOutlookCalendarEvent(calendarId, album, album.year);
         if (res.status === 'success') {
