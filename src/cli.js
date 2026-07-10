@@ -2,9 +2,9 @@ import prompts from 'prompts';
 import path from 'path';
 import fs from 'fs';
 import { getUpcomingAlbums } from './scraper.js';
-import { parseWikiDate } from './calendar.js';
+import { parseWikiDate, MONTH_NAMES } from './calendar.js';
 import { getCredentials, getCachedFollowedArtists, login, syncFollowedArtists, getTopArtists } from './spotify.js';
-import { MONTH_NAMES, buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
+import { buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
 
 async function waitForEnter(message) {
   await prompts({

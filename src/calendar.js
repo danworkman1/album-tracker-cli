@@ -1,45 +1,45 @@
 import fs from 'fs';
-import path from 'path';
+
+export const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const MONTH_INDEX = new Map(MONTH_NAMES.map((name, idx) => [name.toLowerCase(), idx]));
 
 /**
- * Parses Wikipedia's date text (e.g. "January 1") and returns start and end strings in YYYYMMDD format.
+ * Parses Wikipedia's date text (e.g. "January 1") and returns start/end
+ * strings in both YYYYMMDD (ICS) and YYYY-MM-DD (Google/Graph) formats.
  * @param {string} dateStr - Date string from scraper
  * @param {number} year - Release year
- * @returns {{start: string, end: string}|null}
+ * @returns {{start: string, end: string, startISO: string, endISO: string}|null}
  */
 export function parseWikiDate(dateStr, year) {
   if (!dateStr) return null;
-  
-  // Extract month and day (e.g., "January 1" or "January 15")
+
   // Wikipedia date headers can contain references or extra text, so we clean it up
   const match = dateStr.match(/([A-Za-z]+)\s+(\d+)/);
   if (!match) return null;
 
-  const monthName = match[1];
+  const monthIndex = MONTH_INDEX.get(match[1].toLowerCase());
   const day = parseInt(match[2], 10);
-  
-  const monthMap = {
-    january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-    july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
-  };
-  
-  const monthIndex = monthMap[monthName.toLowerCase()];
   if (monthIndex === undefined || isNaN(day)) return null;
 
   const startDate = new Date(year, monthIndex, day);
-  // All-day events in ICS require the end date to be the day after (exclusive)
+  // All-day events require the end date to be the day after (exclusive)
   const endDate = new Date(year, monthIndex, day + 1);
 
-  const formatDate = (date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}${m}${d}`;
-  };
+  const parts = (date) => [
+    String(date.getFullYear()),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ];
 
   return {
-    start: formatDate(startDate),
-    end: formatDate(endDate)
+    start: parts(startDate).join(''),
+    end: parts(endDate).join(''),
+    startISO: parts(startDate).join('-'),
+    endISO: parts(endDate).join('-')
   };
 }
 

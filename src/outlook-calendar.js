@@ -143,10 +143,6 @@ export async function getWritableOutlookCalendars() {
   return calendars;
 }
 
-function toGraphDate(date) {
-  return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
-}
-
 function buildAlbumEvent(album, dates, transactionId) {
   const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${album.artist} ${album.album}`)}`;
 
@@ -164,11 +160,11 @@ function buildAlbumEvent(album, dates, transactionId) {
     },
     isAllDay: true,
     start: {
-      dateTime: `${toGraphDate(dates.start)}T00:00:00`,
+      dateTime: `${dates.startISO}T00:00:00`,
       timeZone: 'UTC'
     },
     end: {
-      dateTime: `${toGraphDate(dates.end)}T00:00:00`,
+      dateTime: `${dates.endISO}T00:00:00`,
       timeZone: 'UTC'
     },
     transactionId,
@@ -207,7 +203,7 @@ export async function addOutlookCalendarEvent(calendarId, album, year) {
     throw new Error(`Invalid date format for album: ${album.artist} - ${album.album}`);
   }
 
-  const hashSource = `${album.artist.toLowerCase()}-${album.album.toLowerCase()}-${toGraphDate(dates.start)}`;
+  const hashSource = `${album.artist.toLowerCase()}-${album.album.toLowerCase()}-${dates.startISO}`;
   const transactionId = crypto.createHash('sha256').update(hashSource).digest('hex');
   const eventBody = buildAlbumEvent(album, dates, transactionId);
 

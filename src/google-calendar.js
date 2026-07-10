@@ -156,9 +156,8 @@ export async function addGoogleCalendarEvent(calendarId, album, year) {
     throw new Error(`Invalid date format for album: ${album.artist} - ${album.album}`);
   }
 
-  // Format dates to YYYY-MM-DD for Google API
-  const startISO = `${dates.start.slice(0, 4)}-${dates.start.slice(4, 6)}-${dates.start.slice(6, 8)}`;
-  const endISO = `${dates.end.slice(0, 4)}-${dates.end.slice(4, 6)}-${dates.end.slice(6, 8)}`;
+  const startISO = dates.startISO;
+  const endISO = dates.endISO;
 
   // Generate a deterministic event ID compatible with Google Calendar rules [a-v0-9]
   // MD5 output is hex (0-9a-f), which matches the character restrictions.
