@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { getUpcomingAlbums } from './scraper.js';
 import { parseWikiDate } from './calendar.js';
-import { getCredentials, login, syncFollowedArtists, getTopArtists } from './spotify.js';
+import { getCredentials, getCachedFollowedArtists, login, syncFollowedArtists, getTopArtists } from './spotify.js';
 import { MONTH_NAMES, buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
 
 async function waitForEnter(message) {
@@ -158,7 +158,7 @@ async function main() {
   console.log('=============================================\n');
 
   const creds = getCredentials();
-  let followedArtists = creds.followedArtists || [];
+  let followedArtists = getCachedFollowedArtists();
   let topArtistRankMap = new Map();
   const isSpotifyConfigured = Boolean(creds.clientId);
 
