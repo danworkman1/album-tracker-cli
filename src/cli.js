@@ -14,6 +14,107 @@ async function waitForEnter(message) {
 }
 
 /**
+ * Everything destination-specific for the two direct-sync providers lives
+ * here; setupSyncProvider and the sync loop below are provider-agnostic.
+ */
+const SYNC_PROVIDERS = {
+  google: {
+    label: 'Google Calendar',
+    accountNoun: 'Google Account',
+    primaryTag: 'Primary',
+    envHint: 'Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.',
+    loginScript: 'pnpm run login-google',
+    async load() {
+      const m = await import('./google-calendar.js');
+      const creds = m.getGoogleCredentials();
+      return {
+        isConfigured: Boolean(creds.clientId && creds.clientSecret),
+        hasToken: Boolean(creds.refreshToken),
+        login: m.loginGoogle,
+        getCalendars: m.getWritableCalendars,
+        addEvent: m.addGoogleCalendarEvent
+      };
+    }
+  },
+  outlook: {
+    label: 'Outlook Calendar',
+    accountNoun: 'Outlook Account',
+    primaryTag: 'Default',
+    envHint: 'Please set OUTLOOK_CLIENT_ID in your .env file.',
+    loginScript: 'pnpm run login-outlook',
+    async load() {
+      const m = await import('./outlook-calendar.js');
+      const creds = m.getOutlookCredentials();
+      return {
+        isConfigured: Boolean(creds.clientId),
+        hasToken: Boolean(creds.refreshToken),
+        login: m.loginOutlook,
+        getCalendars: m.getWritableOutlookCalendars,
+        addEvent: m.addOutlookCalendarEvent
+      };
+    }
+  }
+};
+
+async function setupSyncProvider(key) {
+  const def = SYNC_PROVIDERS[key];
+  const provider = await def.load();
+
+  if (!provider.isConfigured) {
+    console.log(`\n❌ Error: ${def.label} credentials not configured.`);
+    console.log(def.envHint);
+    console.log(`Then run \`${def.loginScript}\` to authenticate.\n`);
+    process.exit(1);
+  }
+
+  if (!provider.hasToken) {
+    console.log(`\n${def.label} authentication is required.`);
+    try {
+      await provider.login();
+      await waitForEnter(`${def.label} authentication successful. Press Enter to continue.`);
+    } catch (err) {
+      console.error(`❌ ${def.label} authentication failed:`, err.message);
+      process.exit(1);
+    }
+  }
+
+  let calendars = [];
+  try {
+    calendars = await provider.getCalendars();
+  } catch (err) {
+    console.error(`❌ Failed to fetch ${def.label}s:`, err.message);
+    process.exit(1);
+  }
+
+  if (calendars.length === 0) {
+    console.log(`\n❌ No writable calendars found in your ${def.accountNoun}.`);
+    process.exit(1);
+  }
+
+  const calendarPrompt = await prompts({
+    type: 'select',
+    name: 'calendarId',
+    message: `Select target ${def.label}:`,
+    choices: calendars.map(cal => ({
+      title: `${cal.summary}${cal.primary ? ` (${def.primaryTag})` : ''}`,
+      value: cal.id
+    }))
+  });
+
+  if (!calendarPrompt.calendarId) {
+    console.log('\nNo calendar selected. Exiting.');
+    process.exit(0);
+  }
+
+  return {
+    destination: key,
+    label: def.label,
+    calendarId: calendarPrompt.calendarId,
+    addEvent: provider.addEvent
+  };
+}
+
+/**
  * Prompts for a calendar destination and completes any required auth/calendar
  * selection upfront, before the user has picked any albums. Exits the
  * process on setup failure or if the user backs out of a prompt.
@@ -39,116 +140,7 @@ async function chooseCalendarDestination() {
     return { destination: 'ics' };
   }
 
-  if (destinationPrompt.destination === 'google') {
-    const { getGoogleCredentials, loginGoogle, getWritableCalendars } = await import('./google-calendar.js');
-    const googleCreds = getGoogleCredentials();
-    const isGoogleConfigured = googleCreds.clientId && googleCreds.clientSecret;
-
-    if (!isGoogleConfigured) {
-      console.log('\n❌ Error: Google Calendar credentials not configured.');
-      console.log('Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file.');
-      console.log('Then run `pnpm run login-google` to authenticate.\n');
-      process.exit(1);
-    }
-
-    if (!googleCreds.refreshToken) {
-      console.log('\nGoogle Calendar authentication is required.');
-      try {
-        await loginGoogle();
-        await waitForEnter('Google Calendar authentication successful. Press Enter to continue.');
-      } catch (err) {
-        console.error('❌ Google Calendar authentication failed:', err.message);
-        process.exit(1);
-      }
-    }
-
-    let calendars = [];
-    try {
-      calendars = await getWritableCalendars();
-    } catch (err) {
-      console.error('❌ Failed to fetch Google Calendars:', err.message);
-      process.exit(1);
-    }
-
-    if (calendars.length === 0) {
-      console.log('\n❌ No writable calendars found in your Google Account.');
-      process.exit(1);
-    }
-
-    const calendarChoices = calendars.map(cal => ({
-      title: `${cal.summary}${cal.primary ? ' (Primary)' : ''}`,
-      value: cal.id
-    }));
-
-    const calendarPrompt = await prompts({
-      type: 'select',
-      name: 'calendarId',
-      message: 'Select target Google Calendar:',
-      choices: calendarChoices
-    });
-
-    if (!calendarPrompt.calendarId) {
-      console.log('\nNo calendar selected. Exiting.');
-      process.exit(0);
-    }
-
-    return { destination: 'google', calendarId: calendarPrompt.calendarId };
-  }
-
-  // destination === 'outlook'
-  const { getOutlookCredentials, loginOutlook, getWritableOutlookCalendars } = await import('./outlook-calendar.js');
-  const outlookCreds = getOutlookCredentials();
-  const isOutlookConfigured = outlookCreds.clientId;
-
-  if (!isOutlookConfigured) {
-    console.log('\n❌ Error: Outlook Calendar credentials not configured.');
-    console.log('Please set OUTLOOK_CLIENT_ID in your .env file.');
-    console.log('Then run `pnpm run login-outlook` to authenticate.\n');
-    process.exit(1);
-  }
-
-  if (!outlookCreds.refreshToken) {
-    console.log('\nOutlook Calendar authentication is required.');
-    try {
-      await loginOutlook();
-      await waitForEnter('Outlook Calendar authentication successful. Press Enter to continue.');
-    } catch (err) {
-      console.error('❌ Outlook Calendar authentication failed:', err.message);
-      process.exit(1);
-    }
-  }
-
-  let calendars = [];
-  try {
-    calendars = await getWritableOutlookCalendars();
-  } catch (err) {
-    console.error('❌ Failed to fetch Outlook Calendars:', err.message);
-    process.exit(1);
-  }
-
-  if (calendars.length === 0) {
-    console.log('\n❌ No writable calendars found in your Outlook Account.');
-    process.exit(1);
-  }
-
-  const calendarChoices = calendars.map(cal => ({
-    title: `${cal.summary}${cal.primary ? ' (Default)' : ''}`,
-    value: cal.id
-  }));
-
-  const calendarPrompt = await prompts({
-    type: 'select',
-    name: 'calendarId',
-    message: 'Select target Outlook Calendar:',
-    choices: calendarChoices
-  });
-
-  if (!calendarPrompt.calendarId) {
-    console.log('\nNo calendar selected. Exiting.');
-    process.exit(0);
-  }
-
-  return { destination: 'outlook', calendarId: calendarPrompt.calendarId };
+  return setupSyncProvider(destinationPrompt.destination);
 }
 
 async function main() {
@@ -321,10 +313,9 @@ async function main() {
     } catch (err) {
       console.error('❌ Failed to generate calendar:', err.message);
     }
-  } else if (calendarChoice.destination === 'google') {
-    const { addGoogleCalendarEvent } = await import('./google-calendar.js');
-    const calendarId = calendarChoice.calendarId;
-    console.log(`\nAdding ${selectedAlbums.length} albums to Google Calendar...`);
+  } else {
+    const { label, calendarId, addEvent } = calendarChoice;
+    console.log(`\nAdding ${selectedAlbums.length} albums to ${label}...`);
 
     let successCount = 0;
     let duplicateCount = 0;
@@ -332,7 +323,7 @@ async function main() {
 
     for (const album of selectedAlbums) {
       try {
-        const res = await addGoogleCalendarEvent(calendarId, album);
+        const res = await addEvent(calendarId, album);
         if (res.status === 'success') {
           console.log(`✓ Added: ${album.artist} - ${album.album}`);
           successCount++;
@@ -347,38 +338,7 @@ async function main() {
     }
 
     console.log('\n=============================================');
-    console.log('🎉 Google Calendar Sync Completed!');
-    console.log(` - Successfully added: ${successCount}`);
-    console.log(` - Already existed (skipped): ${duplicateCount}`);
-    console.log(` - Failed: ${failCount}`);
-    console.log('=============================================\n');
-  } else if (calendarChoice.destination === 'outlook') {
-    const { addOutlookCalendarEvent } = await import('./outlook-calendar.js');
-    const calendarId = calendarChoice.calendarId;
-    console.log(`\nAdding ${selectedAlbums.length} albums to Outlook Calendar...`);
-
-    let successCount = 0;
-    let duplicateCount = 0;
-    let failCount = 0;
-
-    for (const album of selectedAlbums) {
-      try {
-        const res = await addOutlookCalendarEvent(calendarId, album);
-        if (res.status === 'success') {
-          console.log(`✓ Added: ${album.artist} - ${album.album}`);
-          successCount++;
-        } else if (res.status === 'duplicate') {
-          console.log(`- Already exists (skipped): ${album.artist} - ${album.album}`);
-          duplicateCount++;
-        }
-      } catch (err) {
-        console.error(`✗ Failed to add: ${album.artist} - ${album.album}:`, err.message);
-        failCount++;
-      }
-    }
-
-    console.log('\n=============================================');
-    console.log('🎉 Outlook Calendar Sync Completed!');
+    console.log(`🎉 ${label} Sync Completed!`);
     console.log(` - Successfully added: ${successCount}`);
     console.log(` - Already existed (skipped): ${duplicateCount}`);
     console.log(` - Failed: ${failCount}`);
