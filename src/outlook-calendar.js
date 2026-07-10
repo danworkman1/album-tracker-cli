@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { parseWikiDate } from './calendar.js';
+import { parseWikiDate, albumEventContent } from './calendar.js';
 import {
   authorizeViaBrowser,
   buildTokenParams,
@@ -144,19 +144,13 @@ export async function getWritableOutlookCalendars() {
 }
 
 function buildAlbumEvent(album, dates, transactionId) {
-  const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${album.artist} ${album.album}`)}`;
+  const { summary, descriptionLines } = albumEventContent(album);
 
   return {
-    subject: `Album Drop: ${album.artist} - ${album.album}`,
+    subject: summary,
     body: {
       contentType: 'Text',
-      content: [
-        `Artist: ${album.artist}`,
-        `Album: ${album.album}`,
-        album.genre ? `Genre: ${album.genre}` : '',
-        album.label ? `Label: ${album.label}` : '',
-        `Spotify Search: ${spotifySearchUrl}`
-      ].filter(Boolean).join('\n')
+      content: descriptionLines.join('\n')
     },
     isAllDay: true,
     start: {
@@ -220,6 +214,10 @@ export async function addOutlookCalendarEvent(calendarId, album, year) {
     },
     body: JSON.stringify(eventBody)
   });
+
+  if (response.status === 409) {
+    return { status: 'duplicate' };
+  }
 
   if (!response.ok) {
     const errText = await response.text();

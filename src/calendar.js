@@ -44,6 +44,28 @@ export function parseWikiDate(dateStr, year) {
 }
 
 /**
+ * The one place event titles, Spotify links, and description bodies are
+ * built — ICS, Google, and Outlook all render from this, so the Outlook
+ * duplicate check (which matches on subject) stays in lockstep with the
+ * title format.
+ */
+export function albumEventContent({ artist, album, genre, label }) {
+  const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${album}`)}`;
+
+  return {
+    summary: `Album Drop: ${artist} - ${album}`,
+    spotifySearchUrl,
+    descriptionLines: [
+      `Artist: ${artist}`,
+      `Album: ${album}`,
+      genre ? `Genre: ${genre}` : '',
+      label ? `Label: ${label}` : '',
+      `Spotify Search: ${spotifySearchUrl}`
+    ].filter(Boolean)
+  };
+}
+
+/**
  * Formats a single event to iCalendar string format.
  * @param {Object} event - Event details
  * @param {string} event.start - YYYYMMDD start
@@ -58,15 +80,7 @@ export function parseWikiDate(dateStr, year) {
 function formatEvent({ start, end, artist, album, genre, label }, timestamp) {
   const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '');
   const uid = `${sanitize(artist)}-${sanitize(album)}-${start}@spotify-album-tracker`;
-  const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${artist} ${album}`)}`;
-
-  const description = [
-    `Artist: ${artist}`,
-    `Album: ${album}`,
-    genre ? `Genre: ${genre}` : '',
-    label ? `Label: ${label}` : '',
-    `Spotify Search: ${spotifySearchUrl}`
-  ].filter(Boolean).join('\\n');
+  const { summary, spotifySearchUrl, descriptionLines } = albumEventContent({ artist, album, genre, label });
 
   return [
     'BEGIN:VEVENT',
@@ -74,8 +88,8 @@ function formatEvent({ start, end, artist, album, genre, label }, timestamp) {
     `DTSTAMP:${timestamp}`,
     `DTSTART;VALUE=DATE:${start}`,
     `DTEND;VALUE=DATE:${end}`,
-    `SUMMARY:Album Drop: ${artist} - ${album}`,
-    `DESCRIPTION:${description}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${descriptionLines.join('\\n')}`,
     `URL:${spotifySearchUrl}`,
     'END:VEVENT'
   ].join('\r\n');

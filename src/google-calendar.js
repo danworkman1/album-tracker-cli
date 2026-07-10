@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { parseWikiDate } from './calendar.js';
+import { parseWikiDate, albumEventContent } from './calendar.js';
 import {
   authorizeViaBrowser,
   buildTokenParams,
@@ -164,18 +164,12 @@ export async function addGoogleCalendarEvent(calendarId, album, year) {
   const hashSource = `${album.artist.toLowerCase()}-${album.album.toLowerCase()}-${startISO}`;
   const eventId = crypto.createHash('md5').update(hashSource).digest('hex');
 
-  const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${album.artist} ${album.album}`)}`;
+  const { summary, spotifySearchUrl, descriptionLines } = albumEventContent(album);
 
   const eventBody = {
     id: eventId,
-    summary: `Album Drop: ${album.artist} - ${album.album}`,
-    description: [
-      `Artist: ${album.artist}`,
-      `Album: ${album.album}`,
-      album.genre ? `Genre: ${album.genre}` : '',
-      album.label ? `Label: ${album.label}` : '',
-      `Spotify Search: ${spotifySearchUrl}`
-    ].filter(Boolean).join('\n'),
+    summary,
+    description: descriptionLines.join('\n'),
     start: {
       date: startISO
     },
