@@ -111,30 +111,38 @@ export async function loginGoogle() {
 }
 
 /**
- * Fetches writeable calendars from the user's account.
+ * Fetches writeable calendars from the user's account, following pagination.
  */
 export async function getWritableCalendars() {
   const token = await refreshGoogleAccessToken();
-  
-  const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
-    headers: {
-      'Authorization': `Bearer ${token}`
+  const calendars = [];
+  let pageToken;
+
+  do {
+    const params = new URLSearchParams(pageToken ? { pageToken } : {});
+    const response = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Google calendars: ${await response.text()}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Google calendars: ${await response.text()}`);
-  }
+    const data = await response.json();
+    // Filter for calendars where we have write access (owner or writer)
+    calendars.push(...(data.items || [])
+      .filter(item => item.accessRole === 'owner' || item.accessRole === 'writer')
+      .map(item => ({
+        id: item.id,
+        summary: item.summary,
+        primary: item.primary || false
+      })));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
 
-  const data = await response.json();
-  // Filter for calendars where we have write access (owner or writer)
-  return data.items
-    .filter(item => item.accessRole === 'owner' || item.accessRole === 'writer')
-    .map(item => ({
-      id: item.id,
-      summary: item.summary,
-      primary: item.primary || false
-    }));
+  return calendars;
 }
 
 /**

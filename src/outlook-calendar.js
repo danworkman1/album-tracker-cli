@@ -115,25 +115,32 @@ export async function loginOutlook() {
 
 export async function getWritableOutlookCalendars() {
   const token = await refreshOutlookAccessToken();
+  const calendars = [];
+  let url = `${GRAPH_BASE_URL}/me/calendars?$select=id,name,canEdit,isDefaultCalendar`;
 
-  const response = await fetch(`${GRAPH_BASE_URL}/me/calendars?$select=id,name,canEdit,isDefaultCalendar`, {
-    headers: {
-      'Authorization': `Bearer ${token}`
+  while (url) {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Outlook calendars: ${await response.text()}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Outlook calendars: ${await response.text()}`);
+    const data = await response.json();
+    calendars.push(...(data.value || [])
+      .filter(item => item.canEdit !== false)
+      .map(item => ({
+        id: item.id,
+        summary: item.name,
+        primary: item.isDefaultCalendar || false
+      })));
+    url = data['@odata.nextLink'] || null;
   }
 
-  const data = await response.json();
-  return (data.value || [])
-    .filter(item => item.canEdit !== false)
-    .map(item => ({
-      id: item.id,
-      summary: item.name,
-      primary: item.isDefaultCalendar || false
-    }));
+  return calendars;
 }
 
 function toGraphDate(date) {
