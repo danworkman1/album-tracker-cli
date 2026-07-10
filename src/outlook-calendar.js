@@ -1,16 +1,20 @@
-import fs from 'fs';
 import path from 'path';
-import http from 'http';
 import crypto from 'crypto';
-import open from 'open';
 import dotenv from 'dotenv';
 import { parseWikiDate } from './calendar.js';
+import {
+  authorizeViaBrowser,
+  buildTokenParams,
+  isTokenFresh,
+  readAuthFile,
+  requestToken,
+  writeAuthFile
+} from './oauth.js';
 
 dotenv.config();
 
 const OUTLOOK_AUTH_FILE = path.resolve('.outlook-auth.json');
 const REDIRECT_PORT = 8890;
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 const OUTLOOK_SCOPES = [
   'offline_access',
@@ -19,25 +23,13 @@ const OUTLOOK_SCOPES = [
 ].join(' ');
 
 export function getOutlookCredentials() {
-  const envCreds = {
-    clientId: process.env.OUTLOOK_CLIENT_ID,
-    clientSecret: process.env.OUTLOOK_CLIENT_SECRET,
-    tenantId: process.env.OUTLOOK_TENANT_ID
-  };
-
-  let savedAuth = {};
-  if (fs.existsSync(OUTLOOK_AUTH_FILE)) {
-    try {
-      savedAuth = JSON.parse(fs.readFileSync(OUTLOOK_AUTH_FILE, 'utf-8'));
-    } catch (e) {
-      // Ignore malformed local auth cache.
-    }
-  }
+  const savedAuth = readAuthFile(OUTLOOK_AUTH_FILE);
 
   return {
-    clientId: envCreds.clientId || savedAuth.clientId,
-    clientSecret: envCreds.clientSecret || savedAuth.clientSecret,
-    tenantId: envCreds.tenantId || savedAuth.tenantId,
+    clientId: process.env.OUTLOOK_CLIENT_ID || savedAuth.clientId,
+    // Secrets live in .env only — the local auth file never stores them.
+    clientSecret: process.env.OUTLOOK_CLIENT_SECRET,
+    tenantId: process.env.OUTLOOK_TENANT_ID || savedAuth.tenantId,
     accessToken: savedAuth.accessToken,
     refreshToken: savedAuth.refreshToken,
     expiresAt: savedAuth.expiresAt
@@ -49,22 +41,7 @@ function getAuthBaseUrl(creds) {
 }
 
 export function saveOutlookCredentials(data) {
-  const current = getOutlookCredentials();
-  const updated = { ...current, ...data };
-  fs.writeFileSync(OUTLOOK_AUTH_FILE, JSON.stringify(updated, null, 2), 'utf-8');
-}
-
-function buildTokenParams(creds, params) {
-  const body = new URLSearchParams({
-    client_id: creds.clientId,
-    ...params
-  });
-
-  if (creds.clientSecret) {
-    body.set('client_secret', creds.clientSecret);
-  }
-
-  return body;
+  writeAuthFile(OUTLOOK_AUTH_FILE, data);
 }
 
 export async function refreshOutlookAccessToken() {
@@ -73,35 +50,20 @@ export async function refreshOutlookAccessToken() {
     throw new Error('Outlook is not logged in or client credentials are missing.');
   }
 
-  if (creds.expiresAt && Date.now() < creds.expiresAt - 300000) {
+  if (isTokenFresh(creds.expiresAt)) {
     return creds.accessToken;
   }
 
-  const authBaseUrl = getAuthBaseUrl(creds);
-  const response = await fetch(`${authBaseUrl}/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: buildTokenParams(creds, {
-      refresh_token: creds.refreshToken,
-      grant_type: 'refresh_token',
-      scope: OUTLOOK_SCOPES
-    })
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Failed to refresh Outlook access token: ${errText}`);
-  }
-
-  const data = await response.json();
-  const expiresAt = Date.now() + data.expires_in * 1000;
+  const data = await requestToken(`${getAuthBaseUrl(creds)}/token`, buildTokenParams(creds, {
+    refresh_token: creds.refreshToken,
+    grant_type: 'refresh_token',
+    scope: OUTLOOK_SCOPES
+  }), 'Outlook');
 
   saveOutlookCredentials({
     accessToken: data.access_token,
     refreshToken: data.refresh_token || creds.refreshToken,
-    expiresAt
+    expiresAt: data.expiresAt
   });
 
   return data.access_token;
@@ -115,99 +77,39 @@ export async function loginOutlook() {
     throw new Error('Outlook credentials missing in .env');
   }
 
-  const state = crypto.randomBytes(16).toString('hex');
   const authBaseUrl = getAuthBaseUrl(creds);
 
-  return new Promise((resolve, reject) => {
-    const server = http.createServer(async (req, res) => {
-      const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-      if (reqUrl.pathname === '/callback') {
-        const code = reqUrl.searchParams.get('code');
-        const error = reqUrl.searchParams.get('error');
-        const returnedState = reqUrl.searchParams.get('state');
-
-        if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Outlook Authentication Failed</h1><p>' + error + '</p>');
-          server.close();
-          reject(new Error(error));
-          return;
-        }
-
-        if (returnedState !== state) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Outlook Authentication Failed</h1><p>Invalid state parameter.</p>');
-          server.close();
-          reject(new Error('Invalid Outlook OAuth state parameter'));
-          return;
-        }
-
-        try {
-          const tokenRes = await fetch(`${authBaseUrl}/token`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: buildTokenParams(creds, {
-              code,
-              redirect_uri: REDIRECT_URI,
-              grant_type: 'authorization_code',
-              scope: OUTLOOK_SCOPES
-            })
-          });
-
-          if (!tokenRes.ok) {
-            throw new Error(`Outlook token exchange failed: ${await tokenRes.text()}`);
-          }
-
-          const data = await tokenRes.json();
-          saveOutlookCredentials({
-            clientId: creds.clientId,
-            clientSecret: creds.clientSecret,
-            tenantId: creds.tenantId,
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token || creds.refreshToken,
-            expiresAt: Date.now() + data.expires_in * 1000
-          });
-
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121212; color: #ffffff;">
-                <h1 style="color: #0078D4;">Outlook Calendar Successfully Authenticated!</h1>
-                <p>You can now close this window and return to your terminal.</p>
-              </body>
-            </html>
-          `);
-
-          server.close();
-          resolve();
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/html' });
-          res.end('<h1>Internal Server Error</h1><p>' + err.message + '</p>');
-          server.close();
-          reject(err);
-        }
-      } else {
-        res.writeHead(404);
-        res.end();
-      }
-    });
-
-    server.listen(REDIRECT_PORT, () => {
-      const authUrl = `${authBaseUrl}/authorize?` + new URLSearchParams({
+  await authorizeViaBrowser({
+    port: REDIRECT_PORT,
+    providerName: 'Outlook Calendar',
+    accentColor: '#0078D4',
+    buildAuthUrl: ({ state, redirectUri }) =>
+      `${authBaseUrl}/authorize?` + new URLSearchParams({
         client_id: creds.clientId,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         response_type: 'code',
         scope: OUTLOOK_SCOPES,
         response_mode: 'query',
         state
-      }).toString();
+      }).toString(),
+    exchangeCode: async (code, redirectUri) => {
+      const data = await requestToken(`${authBaseUrl}/token`, buildTokenParams(creds, {
+        code,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+        scope: OUTLOOK_SCOPES
+      }), 'Outlook');
 
-      console.log('\nOpening Outlook login in your browser...');
-      console.log(`URL: ${authUrl}\n`);
-      open(authUrl);
-    });
+      saveOutlookCredentials({
+        clientId: creds.clientId,
+        tenantId: creds.tenantId,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || creds.refreshToken,
+        expiresAt: data.expiresAt
+      });
+
+      return data;
+    }
   });
 }
 
