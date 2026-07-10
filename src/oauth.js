@@ -67,7 +67,11 @@ export async function requestToken(tokenUrl, body, providerName) {
  * it (Google previously did).
  */
 export function authorizeViaBrowser({ port, providerName, accentColor, buildAuthUrl, exchangeCode, openBrowser = open }) {
-  const redirectUri = `http://localhost:${port}/callback`;
+  // Spotify (April 2025) rejects the `localhost` hostname and requires the
+  // loopback IP literal; Google and Microsoft accept 127.0.0.1 too, so every
+  // provider shares one host. The redirect URI must match each provider's
+  // registered value exactly.
+  const redirectUri = `http://127.0.0.1:${port}/callback`;
   const state = crypto.randomBytes(16).toString('hex');
 
   return new Promise((resolve, reject) => {
@@ -121,7 +125,7 @@ export function authorizeViaBrowser({ port, providerName, accentColor, buildAuth
       }
     });
 
-    server.listen(port, () => {
+    server.listen(port, '127.0.0.1', () => {
       const authUrl = buildAuthUrl({ state, redirectUri });
       console.log(`\nOpening ${providerName} login in your browser...`);
       console.log(`URL: ${authUrl}\n`);

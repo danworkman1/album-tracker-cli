@@ -32,7 +32,7 @@ To highlight and pre-select releases by your followed artists:
 1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 2. Log in and click **Create App**.
 3. Set the **App name** and **Description**.
-4. In the **Redirect URIs** field, enter: `http://localhost:8888/callback`.
+4. In the **Redirect URIs** field, enter: `http://127.0.0.1:8888/callback`. (Spotify no longer accepts the `localhost` hostname — the loopback IP is required.)
 5. Check the Web API box (and accept terms), then click **Save**.
 6. Click **Settings** to find your **Client ID**.
 7. Create a `.env` file in the root of this project:
@@ -56,7 +56,7 @@ To add events directly into a specific Google Calendar from the CLI:
 3. Go to **APIs & Services** -> **OAuth consent screen**. Create a consent screen (External, add your email and scope `.../auth/calendar.events`). Add your Google account as a Test User.
 4. Go to **APIs & Services** -> **Credentials**. Click **Create Credentials** -> **OAuth client ID**.
 5. Select **Web application** (or Desktop App, but Web allows redirect).
-6. Set the **Authorized redirect URIs** to: `http://localhost:8889/callback`.
+6. Set the **Authorized redirect URIs** to: `http://127.0.0.1:8889/callback`.
 7. Click **Create** and get your **Client ID** and **Client Secret**.
 8. Paste these into your `.env` file:
    ```env
@@ -73,7 +73,7 @@ To add events directly into a specific Outlook Calendar from the CLI:
 1. Go to the [Microsoft Azure App registrations page](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
 2. Click **New registration**.
 3. Choose the supported account types you want. Use **Accounts in any organizational directory and personal Microsoft accounts** if you want both work/school and personal Outlook accounts.
-4. Add a **Mobile and desktop applications** redirect URI: `http://localhost:8890/callback`.
+4. Add a **Mobile and desktop applications** redirect URI: `http://127.0.0.1:8890/callback`.
 5. After registration, copy the **Application (client) ID**.
 6. Paste it into your `.env` file:
    ```env

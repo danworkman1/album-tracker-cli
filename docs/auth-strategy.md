@@ -4,7 +4,7 @@ The CLI should feel like a normal consumer tool:
 
 1. User picks a provider in the terminal.
 2. CLI prints the authorization URL and opens the browser automatically.
-3. Provider redirects to a localhost callback.
+3. Provider redirects to a loopback callback (`http://127.0.0.1:<port>/callback` — Spotify no longer accepts the `localhost` hostname).
 4. Browser shows a success page.
 5. Terminal confirms auth succeeded and continues after Enter.
 

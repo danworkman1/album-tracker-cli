@@ -123,10 +123,10 @@ test('authorizeViaBrowser exchanges the code when state matches', async () => {
 
   await waitFor(() => authUrl);
   const state = new URL(authUrl).searchParams.get('state');
-  const res = await fetch(`http://localhost:18888/callback?code=abc&state=${state}`);
+  const res = await fetch(`http://127.0.0.1:18888/callback?code=abc&state=${state}`);
 
   assert.equal(res.status, 200);
-  assert.deepEqual(await pending, { code: 'abc', redirectUri: 'http://localhost:18888/callback' });
+  assert.deepEqual(await pending, { code: 'abc', redirectUri: 'http://127.0.0.1:18888/callback' });
 });
 
 test('authorizeViaBrowser rejects on state mismatch', async () => {
@@ -149,7 +149,7 @@ test('authorizeViaBrowser rejects on state mismatch', async () => {
   const rejection = assert.rejects(pending, /Invalid Test OAuth state parameter/);
 
   await waitFor(() => authUrl);
-  const res = await fetch('http://localhost:18889/callback?code=abc&state=wrong');
+  const res = await fetch('http://127.0.0.1:18889/callback?code=abc&state=wrong');
 
   assert.equal(res.status, 400);
   await rejection;
