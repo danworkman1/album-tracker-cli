@@ -149,9 +149,9 @@ export async function getWritableCalendars() {
  * Adds an album event to the specified Google Calendar.
  * Prevents duplicates by creating a deterministic ID from artist, album and date.
  */
-export async function addGoogleCalendarEvent(calendarId, album, year) {
+export async function addGoogleCalendarEvent(calendarId, album) {
   const token = await refreshGoogleAccessToken();
-  const dates = parseWikiDate(album.date, year);
+  const dates = parseWikiDate(album.date, album.year);
   if (!dates) {
     throw new Error(`Invalid date format for album: ${album.artist} - ${album.album}`);
   }

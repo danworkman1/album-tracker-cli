@@ -1,8 +1,7 @@
 import prompts from 'prompts';
 import path from 'path';
-import fs from 'fs';
 import { getUpcomingAlbums } from './scraper.js';
-import { parseWikiDate, MONTH_NAMES } from './calendar.js';
+import { generateICS, MONTH_NAMES } from './calendar.js';
 import { getCredentials, getCachedFollowedArtists, login, syncFollowedArtists, getTopArtists } from './spotify.js';
 import { buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
 
@@ -312,51 +311,7 @@ async function main() {
     console.log(`\nGenerating calendar with ${selectedAlbums.length} albums...`);
 
     try {
-      // Generate the ICS file. Since albums can span two years (if run in December),
-      // we use the stored year on each album object when formatting events.
-      const icsNow = new Date();
-      const timestamp = icsNow.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-
-      const events = selectedAlbums.map(album => {
-        const dates = parseWikiDate(album.date, album.year);
-        if (!dates) return null;
-
-        const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '');
-        const uid = `${sanitize(album.artist)}-${sanitize(album.album)}-${dates.start}@spotify-album-tracker`;
-        const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(`${album.artist} ${album.album}`)}`;
-
-        const description = [
-          `Artist: ${album.artist}`,
-          `Album: ${album.album}`,
-          album.genre ? `Genre: ${album.genre}` : '',
-          album.label ? `Label: ${album.label}` : '',
-          `Spotify Search: ${spotifySearchUrl}`
-        ].filter(Boolean).join('\\n');
-
-        return [
-          'BEGIN:VEVENT',
-          `UID:${uid}`,
-          `DTSTAMP:${timestamp}`,
-          `DTSTART;VALUE=DATE:${dates.start}`,
-          `DTEND;VALUE=DATE:${dates.end}`,
-          `SUMMARY:Album Drop: ${album.artist} - ${album.album}`,
-          `DESCRIPTION:${description}`,
-          `URL:${spotifySearchUrl}`,
-          'END:VEVENT'
-        ].join('\r\n');
-      }).filter(Boolean);
-
-      const icsContent = [
-        'BEGIN:VCALENDAR',
-        'VERSION:2.0',
-        'PRODID:-//Spotify Album Tracker//EN',
-        'CALSCALE:GREGORIAN',
-        'METHOD:PUBLISH',
-        events.join('\r\n'),
-        'END:VCALENDAR'
-      ].join('\r\n');
-
-      fs.writeFileSync(outputPath, icsContent, 'utf-8');
+      generateICS(selectedAlbums, outputPath);
 
       console.log(`\n🎉 Success! Calendar file created at:`);
       console.log(`👉 ${outputPath}`);
@@ -377,7 +332,7 @@ async function main() {
 
     for (const album of selectedAlbums) {
       try {
-        const res = await addGoogleCalendarEvent(calendarId, album, album.year);
+        const res = await addGoogleCalendarEvent(calendarId, album);
         if (res.status === 'success') {
           console.log(`✓ Added: ${album.artist} - ${album.album}`);
           successCount++;
@@ -408,7 +363,7 @@ async function main() {
 
     for (const album of selectedAlbums) {
       try {
-        const res = await addOutlookCalendarEvent(calendarId, album, album.year);
+        const res = await addOutlookCalendarEvent(calendarId, album);
         if (res.status === 'success') {
           console.log(`✓ Added: ${album.artist} - ${album.album}`);
           successCount++;

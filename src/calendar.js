@@ -96,18 +96,18 @@ function formatEvent({ start, end, artist, album, genre, label }, timestamp) {
 }
 
 /**
- * Generates an .ics file from selected albums.
- * @param {Array} selectedAlbums - Selected album objects
- * @param {number} year - Release year
+ * Generates an .ics file from selected albums. Each album carries its own
+ * release year so a December run can span two calendar years.
+ * @param {Array} selectedAlbums - Selected album objects (with .year)
  * @param {string} outputPath - Output file path
  */
-export function generateICS(selectedAlbums, year, outputPath) {
+export function generateICS(selectedAlbums, outputPath) {
   const now = new Date();
   const timestamp = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
   const events = selectedAlbums
     .map(album => {
-      const dates = parseWikiDate(album.date, year);
+      const dates = parseWikiDate(album.date, album.year);
       if (!dates) return null;
       return formatEvent({ ...album, start: dates.start, end: dates.end }, timestamp);
     })

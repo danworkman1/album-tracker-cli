@@ -190,9 +190,9 @@ async function findExistingOutlookEvent(token, calendarId, eventBody) {
   );
 }
 
-export async function addOutlookCalendarEvent(calendarId, album, year) {
+export async function addOutlookCalendarEvent(calendarId, album) {
   const token = await refreshOutlookAccessToken();
-  const dates = parseWikiDate(album.date, year);
+  const dates = parseWikiDate(album.date, album.year);
   if (!dates) {
     throw new Error(`Invalid date format for album: ${album.artist} - ${album.album}`);
   }
