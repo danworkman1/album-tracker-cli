@@ -268,6 +268,7 @@ async function main() {
 
   const choices = suggestions.length > 0
     ? [
+        { title: '── Top 10 Suggestions ──', value: null, disabled: true },
         ...suggestions.map(toChoice),
         { title: '── Full List (A–Z) ──', value: null, disabled: true },
         ...fullList.map(toChoice)

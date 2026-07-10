@@ -99,7 +99,7 @@ pnpm start
 ```
 
 ### Flow:
-1. **Connect Spotify (optional):** If configured, you'll be asked to connect so your followed artists can be highlighted and ranked.
+1. **Connect Spotify (optional):** If configured but not yet connected, you'll be asked to connect so your followed artists can be highlighted and ranked. On later runs the CLI refreshes your followed artists automatically without asking.
 2. **Choose your calendar destination:** Pick where releases should go before you see any albums:
    * **Local iCalendar file (.ics):** Generates an `albums.ics` file.
    * **Google Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Google account; events are created automatically (preventing duplicates).
