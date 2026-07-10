@@ -158,9 +158,11 @@ async function main() {
       const topArtists = await getTopArtists();
       topArtistRankMap = buildTopArtistRankMap(topArtists);
     } catch (err) {
-      console.log(`⚠️  Could not fetch ranked top artists: ${err.message}`);
-      console.log('If you connected Spotify before this feature was added, run `pnpm run login` again to enable ranked suggestions.');
-      console.log('Continuing with suggestions ordered by release date instead.\n');
+      if (err.status === 403) {
+        console.log('⚠️  Spotify refused the top-artists request — run `pnpm run login` again to grant the new permission. Continuing without ranked suggestions.\n');
+      } else {
+        console.log(`⚠️  Could not fetch ranked top artists (${err.message}). Continuing without ranked suggestions.\n`);
+      }
     }
   }
 

@@ -201,7 +201,9 @@ export async function getTopArtists() {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch top artists: ${await response.text()}`);
+    const err = new Error(`Failed to fetch top artists: ${await response.text()}`);
+    err.status = response.status;
+    throw err;
   }
 
   const data = await response.json();
