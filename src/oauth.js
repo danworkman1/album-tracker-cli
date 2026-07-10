@@ -1,4 +1,7 @@
 import fs from 'fs';
+import http from 'http';
+import crypto from 'crypto';
+import open from 'open';
 
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
@@ -39,4 +42,90 @@ export function writeAuthFile(filePath, update) {
   const merged = mergeAuthState(readAuthFile(filePath), update);
   fs.writeFileSync(filePath, JSON.stringify(merged, null, 2), 'utf-8');
   return merged;
+}
+
+export async function requestToken(tokenUrl, body, providerName) {
+  const response = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body
+  });
+
+  if (!response.ok) {
+    throw new Error(`${providerName} token request failed: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  return { ...data, expiresAt: Date.now() + data.expires_in * 1000 };
+}
+
+/**
+ * Runs the localhost OAuth callback dance shared by every provider. The
+ * state parameter is generated and verified here so no provider can forget
+ * it (Google previously did).
+ */
+export function authorizeViaBrowser({ port, providerName, accentColor, buildAuthUrl, exchangeCode, openBrowser = open }) {
+  const redirectUri = `http://localhost:${port}/callback`;
+  const state = crypto.randomBytes(16).toString('hex');
+
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(async (req, res) => {
+      const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+      if (reqUrl.pathname !== '/callback') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+
+      const code = reqUrl.searchParams.get('code');
+      const error = reqUrl.searchParams.get('error');
+      const returnedState = reqUrl.searchParams.get('state');
+
+      const fail = (message, err) => {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end(`<h1>${providerName} Authentication Failed</h1><p>${message}</p>`);
+        server.close();
+        reject(err);
+      };
+
+      if (error) {
+        fail(error, new Error(error));
+        return;
+      }
+
+      if (returnedState !== state) {
+        fail('Invalid state parameter.', new Error(`Invalid ${providerName} OAuth state parameter`));
+        return;
+      }
+
+      try {
+        const tokenData = await exchangeCode(code, redirectUri);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+          <html>
+            <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121212; color: #ffffff;">
+              <h1 style="color: ${accentColor};">${providerName} Successfully Authenticated!</h1>
+              <p>You can now close this window and return to your terminal.</p>
+            </body>
+          </html>
+        `);
+        server.close();
+        resolve(tokenData);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end('<h1>Internal Server Error</h1><p>' + err.message + '</p>');
+        server.close();
+        reject(err);
+      }
+    });
+
+    server.listen(port, () => {
+      const authUrl = buildAuthUrl({ state, redirectUri });
+      console.log(`\nOpening ${providerName} login in your browser...`);
+      console.log(`URL: ${authUrl}\n`);
+      openBrowser(authUrl);
+    });
+  });
 }
