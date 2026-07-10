@@ -1,38 +1,32 @@
-import fs from 'fs';
 import path from 'path';
-import http from 'http';
 import crypto from 'crypto';
-import open from 'open';
 import dotenv from 'dotenv';
 import { parseWikiDate } from './calendar.js';
+import {
+  authorizeViaBrowser,
+  buildTokenParams,
+  isTokenFresh,
+  readAuthFile,
+  requestToken,
+  writeAuthFile
+} from './oauth.js';
 
 dotenv.config();
 
 const GOOGLE_AUTH_FILE = path.resolve('.google-auth.json');
 const REDIRECT_PORT = 8889;
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 /**
  * Loads Google auth tokens and credentials from config or env.
  */
 export function getGoogleCredentials() {
-  const envCreds = {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  };
-
-  let savedAuth = {};
-  if (fs.existsSync(GOOGLE_AUTH_FILE)) {
-    try {
-      savedAuth = JSON.parse(fs.readFileSync(GOOGLE_AUTH_FILE, 'utf-8'));
-    } catch (e) {
-      // Ignore
-    }
-  }
+  const savedAuth = readAuthFile(GOOGLE_AUTH_FILE);
 
   return {
-    clientId: envCreds.clientId || savedAuth.clientId,
-    clientSecret: envCreds.clientSecret || savedAuth.clientSecret,
+    clientId: process.env.GOOGLE_CLIENT_ID || savedAuth.clientId,
+    // Secrets live in .env only — the local auth file never stores them.
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     accessToken: savedAuth.accessToken,
     refreshToken: savedAuth.refreshToken,
     expiresAt: savedAuth.expiresAt
@@ -43,9 +37,7 @@ export function getGoogleCredentials() {
  * Saves Google auth config.
  */
 export function saveGoogleCredentials(data) {
-  const current = getGoogleCredentials();
-  const updated = { ...current, ...data };
-  fs.writeFileSync(GOOGLE_AUTH_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+  writeAuthFile(GOOGLE_AUTH_FILE, data);
 }
 
 /**
@@ -57,35 +49,18 @@ export async function refreshGoogleAccessToken() {
     throw new Error('Google is not logged in or client credentials are missing.');
   }
 
-  // Token is still valid (5-minute buffer)
-  if (creds.expiresAt && Date.now() < creds.expiresAt - 300000) {
+  if (isTokenFresh(creds.expiresAt)) {
     return creds.accessToken;
   }
 
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: new URLSearchParams({
-      client_id: creds.clientId,
-      client_secret: creds.clientSecret,
-      refresh_token: creds.refreshToken,
-      grant_type: 'refresh_token'
-    })
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Failed to refresh Google access token: ${errText}`);
-  }
-
-  const data = await response.json();
-  const expiresAt = Date.now() + data.expires_in * 1000;
+  const data = await requestToken(TOKEN_URL, buildTokenParams(creds, {
+    refresh_token: creds.refreshToken,
+    grant_type: 'refresh_token'
+  }), 'Google');
 
   saveGoogleCredentials({
     accessToken: data.access_token,
-    expiresAt
+    expiresAt: data.expiresAt
   });
 
   return data.access_token;
@@ -102,87 +77,36 @@ export async function loginGoogle() {
     throw new Error('Google credentials missing in .env');
   }
 
-  return new Promise((resolve, reject) => {
-    const server = http.createServer(async (req, res) => {
-      const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-      if (reqUrl.pathname === '/callback') {
-        const code = reqUrl.searchParams.get('code');
-        const error = reqUrl.searchParams.get('error');
-
-        if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<h1>Google Authentication Failed</h1><p>' + error + '</p>');
-          server.close();
-          reject(new Error(error));
-          return;
-        }
-
-        try {
-          const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-              code,
-              client_id: creds.clientId,
-              client_secret: creds.clientSecret,
-              redirect_uri: REDIRECT_URI,
-              grant_type: 'authorization_code'
-            })
-          });
-
-          if (!tokenRes.ok) {
-            throw new Error(`Google token exchange failed: ${await tokenRes.text()}`);
-          }
-
-          const data = await tokenRes.json();
-          saveGoogleCredentials({
-            clientId: creds.clientId,
-            clientSecret: creds.clientSecret,
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token || creds.refreshToken,
-            expiresAt: Date.now() + data.expires_in * 1000
-          });
-
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121212; color: #ffffff;">
-                <h1 style="color: #4285F4;">Google Calendar Successfully Authenticated!</h1>
-                <p>You can now close this window and return to your terminal.</p>
-              </body>
-            </html>
-          `);
-          
-          server.close();
-          resolve();
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/html' });
-          res.end('<h1>Internal Server Error</h1><p>' + err.message + '</p>');
-          server.close();
-          reject(err);
-        }
-      } else {
-        res.writeHead(404);
-        res.end();
-      }
-    });
-
-    server.listen(REDIRECT_PORT, () => {
-      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+  await authorizeViaBrowser({
+    port: REDIRECT_PORT,
+    providerName: 'Google Calendar',
+    accentColor: '#4285F4',
+    buildAuthUrl: ({ state, redirectUri }) =>
+      'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
         client_id: creds.clientId,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         response_type: 'code',
         scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
         access_type: 'offline',
-        prompt: 'consent' // Forces Google to provide a refresh_token
-      }).toString();
+        prompt: 'consent', // Forces Google to provide a refresh_token
+        state
+      }).toString(),
+    exchangeCode: async (code, redirectUri) => {
+      const data = await requestToken(TOKEN_URL, buildTokenParams(creds, {
+        code,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      }), 'Google');
 
-      console.log('\nOpening Google login in your browser...');
-      console.log(`URL: ${authUrl}\n`);
-      open(authUrl);
-    });
+      saveGoogleCredentials({
+        clientId: creds.clientId,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || creds.refreshToken,
+        expiresAt: data.expiresAt
+      });
+
+      return data;
+    }
   });
 }
 
