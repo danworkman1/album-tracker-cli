@@ -10,7 +10,7 @@ It also integrates with Spotify to highlight upcoming albums from artists you fo
 
 - **Wikipedia Scraper:** Scrapes Wikipedia's annual album lists (e.g. `List of 2026 albums`) for the current and next month.
 - **Interactive Multi-select:** Search and filter through albums using a searchable CLI checklist.
-- **Spotify Integration (Optional):** Logs in via Spotify OAuth, fetches your followed artists, and marks their upcoming releases with a ★ at the top of the terminal menu. Nothing is pre-selected — every pick is yours.
+- **Spotify Integration (Optional):** Logs in via Spotify OAuth, fetches your followed artists, and surfaces their upcoming releases in a **Top 10 Suggestions** block at the top of the terminal menu. Nothing is pre-selected — every pick is yours.
 - **Fast, Cached Startup:** Followed artists are cached locally, so normal runs start instantly without calling Spotify. The cache auto-refreshes when it's over a day old, or on demand with `pnpm start --refresh`.
 - **9am Release Reminders:** Each release is added as a short reminder at 9am on release day, marked *free* so it never blocks your calendar.
 - **Direct Calendar Sync:** Adds selected releases directly to Google Calendar or Outlook Calendar.
@@ -105,7 +105,7 @@ pnpm start
    * **Local iCalendar file (.ics):** Generates an `albums.ics` file.
    * **Google Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Google account; events are created automatically (preventing duplicates).
    * **Outlook Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Microsoft account; events are created automatically (preventing duplicates).
-3. **Interactive Checklist:** Navigate, search, and toggle selections (nothing is pre-selected). If you're connected to Spotify, a **Top 10 Suggestions** block (ranked by your followed artists) appears first, followed by the complete album list in alphabetical order by artist (A–Z) so you can browse everything. Followed artists are marked with a ★.
+3. **Interactive Checklist:** Navigate, search, and toggle selections (nothing is pre-selected). If you're connected to Spotify, a **Top 10 Suggestions** block (ranked by your followed artists) appears first, followed by the complete album list in alphabetical order by artist (A–Z) so you can browse everything.
 
 ### Interface Controls:
 - **Up / Down Arrows:** Navigate the list.

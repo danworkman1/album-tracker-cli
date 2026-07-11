@@ -276,10 +276,9 @@ async function main() {
   const suggestions = buildSuggestions(followedAlbums, topArtistRankMap);
   const fullList = sortAlphabeticallyByArtist(enrichedAlbums);
 
-  // Followed artists get a leading star so they're easy to spot, but nothing
-  // is pre-selected — every pick is an explicit choice by the user.
+  // Nothing is pre-selected — every pick is an explicit choice by the user.
   const toChoice = (album) => ({
-    title: `${album.isFollowed ? '★ ' : ''}${album.artist} - ${album.album} (${album.date})`,
+    title: `${album.artist} - ${album.album} (${album.date})`,
     value: album
   });
 
