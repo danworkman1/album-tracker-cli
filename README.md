@@ -2,7 +2,7 @@
 
 A local Node.js CLI tool that scrapes upcoming album releases from Wikipedia, lets you select which ones you are interested in using an interactive terminal interface, and generates a standard calendar file (`.ics`) to import into Google Calendar, Apple Calendar, or Outlook.
 
-It also integrates with Spotify to automatically highlight and pre-select upcoming albums from artists you follow!
+It also integrates with Spotify to highlight upcoming albums from artists you follow!
 
 ---
 
@@ -10,8 +10,9 @@ It also integrates with Spotify to automatically highlight and pre-select upcomi
 
 - **Wikipedia Scraper:** Scrapes Wikipedia's annual album lists (e.g. `List of 2026 albums`) for the current and next month.
 - **Interactive Multi-select:** Search and filter through albums using a searchable CLI checklist.
-- **Spotify Integration (Optional):** Logs in via Spotify OAuth, fetches your followed artists, lists their upcoming releases at the top of the terminal menu, and pre-checks them for you.
-- **All-Day Calendar Events:** Generates clean all-day events on the album release date.
+- **Spotify Integration (Optional):** Logs in via Spotify OAuth, fetches your followed artists, and marks their upcoming releases with a ★ at the top of the terminal menu. Nothing is pre-selected — every pick is yours.
+- **Fast, Cached Startup:** Followed artists are cached locally, so normal runs start instantly without calling Spotify. The cache auto-refreshes when it's over a day old, or on demand with `pnpm start --refresh`.
+- **9am Release Reminders:** Each release is added as a short reminder at 9am on release day, marked *free* so it never blocks your calendar.
 - **Direct Calendar Sync:** Adds selected releases directly to Google Calendar or Outlook Calendar.
 - **Direct Spotify Links:** Each calendar event includes a search link (`https://open.spotify.com/search/...`) for that album, letting you listen with a single click.
 
@@ -99,12 +100,12 @@ pnpm start
 ```
 
 ### Flow:
-1. **Connect Spotify (optional):** If configured but not yet connected, you'll be asked to connect so your followed artists can be highlighted and ranked. On later runs the CLI refreshes your followed artists automatically without asking.
+1. **Connect Spotify (optional):** If configured but not yet connected, you'll be asked to connect so your followed artists can be highlighted and ranked. On later runs the CLI loads your followed artists from the local cache for a fast start, re-syncing only when the cache is over a day old (or when you pass `--refresh`).
 2. **Choose your calendar destination:** Pick where releases should go before you see any albums:
    * **Local iCalendar file (.ics):** Generates an `albums.ics` file.
    * **Google Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Google account; events are created automatically (preventing duplicates).
    * **Outlook Calendar (Sync Directly):** Logs in (if needed) and lets you pick a calendar from your Microsoft account; events are created automatically (preventing duplicates).
-3. **Interactive Checklist:** Navigate, search, and toggle selections. If you're connected to Spotify, a **Top 10 Suggestions** block (ranked by your followed artists) appears first, followed by the complete album list in alphabetical order by artist (A–Z) so you can browse everything.
+3. **Interactive Checklist:** Navigate, search, and toggle selections (nothing is pre-selected). If you're connected to Spotify, a **Top 10 Suggestions** block (ranked by your followed artists) appears first, followed by the complete album list in alphabetical order by artist (A–Z) so you can browse everything. Followed artists are marked with a ★.
 
 ### Interface Controls:
 - **Up / Down Arrows:** Navigate the list.

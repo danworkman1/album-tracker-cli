@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { parseWikiDate, albumEventContent } from './calendar.js';
+import { parseWikiDate, albumEventContent, getLocalTimeZone, REMINDER_START_TIME, REMINDER_END_TIME } from './calendar.js';
 import {
   authorizeViaBrowser,
   buildTokenParams,
@@ -145,6 +145,7 @@ export async function getWritableOutlookCalendars() {
 
 function buildAlbumEvent(album, dates, transactionId) {
   const { summary, descriptionLines } = albumEventContent(album);
+  const timeZone = getLocalTimeZone();
 
   return {
     subject: summary,
@@ -152,25 +153,31 @@ function buildAlbumEvent(album, dates, transactionId) {
       contentType: 'Text',
       content: descriptionLines.join('\n')
     },
-    isAllDay: true,
+    // A short "free" reminder at 9am rather than a busy all-day block.
+    isAllDay: false,
+    showAs: 'free',
+    isReminderOn: true,
+    reminderMinutesBeforeStart: 0,
     start: {
-      dateTime: `${dates.startISO}T00:00:00`,
-      timeZone: 'UTC'
+      dateTime: `${dates.startISO}T${REMINDER_START_TIME}`,
+      timeZone
     },
     end: {
-      dateTime: `${dates.endISO}T00:00:00`,
-      timeZone: 'UTC'
+      dateTime: `${dates.startISO}T${REMINDER_END_TIME}`,
+      timeZone
     },
     transactionId,
     categories: ['Album Tracker']
   };
 }
 
-async function findExistingOutlookEvent(token, calendarId, eventBody) {
+async function findExistingOutlookEvent(token, calendarId, dayISO, subject) {
+  // Scan the whole release day so the check catches a matching reminder
+  // regardless of its time (or an older all-day event from a prior run).
   const params = new URLSearchParams({
-    startDateTime: eventBody.start.dateTime,
-    endDateTime: eventBody.end.dateTime,
-    '$select': 'id,subject,isAllDay'
+    startDateTime: `${dayISO}T00:00:00`,
+    endDateTime: `${dayISO}T23:59:59`,
+    '$select': 'id,subject'
   });
 
   const response = await fetch(`${GRAPH_BASE_URL}/me/calendars/${encodeURIComponent(calendarId)}/calendarView?${params}`, {
@@ -185,9 +192,7 @@ async function findExistingOutlookEvent(token, calendarId, eventBody) {
   }
 
   const data = await response.json();
-  return (data.value || []).some(event =>
-    event.subject === eventBody.subject && event.isAllDay === true
-  );
+  return (data.value || []).some(event => event.subject === subject);
 }
 
 export async function addOutlookCalendarEvent(calendarId, album) {
@@ -201,7 +206,7 @@ export async function addOutlookCalendarEvent(calendarId, album) {
   const transactionId = crypto.createHash('sha256').update(hashSource).digest('hex');
   const eventBody = buildAlbumEvent(album, dates, transactionId);
 
-  if (await findExistingOutlookEvent(token, calendarId, eventBody)) {
+  if (await findExistingOutlookEvent(token, calendarId, dates.startISO, eventBody.subject)) {
     return { status: 'duplicate' };
   }
 

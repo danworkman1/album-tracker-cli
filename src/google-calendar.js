@@ -1,7 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { parseWikiDate, albumEventContent } from './calendar.js';
+import { parseWikiDate, albumEventContent, getLocalTimeZone, REMINDER_START_TIME, REMINDER_END_TIME } from './calendar.js';
 import {
   authorizeViaBrowser,
   buildTokenParams,
@@ -157,24 +157,33 @@ export async function addGoogleCalendarEvent(calendarId, album) {
   }
 
   const startISO = dates.startISO;
-  const endISO = dates.endISO;
 
   // Generate a deterministic event ID compatible with Google Calendar rules [a-v0-9]
   // MD5 output is hex (0-9a-f), which matches the character restrictions.
+  // Hash on the release date only so re-runs still de-duplicate.
   const hashSource = `${album.artist.toLowerCase()}-${album.album.toLowerCase()}-${startISO}`;
   const eventId = crypto.createHash('md5').update(hashSource).digest('hex');
 
   const { summary, spotifySearchUrl, descriptionLines } = albumEventContent(album);
+  const timeZone = getLocalTimeZone();
 
   const eventBody = {
     id: eventId,
     summary,
     description: descriptionLines.join('\n'),
     start: {
-      date: startISO
+      dateTime: `${startISO}T${REMINDER_START_TIME}`,
+      timeZone
     },
     end: {
-      date: endISO
+      dateTime: `${startISO}T${REMINDER_END_TIME}`,
+      timeZone
+    },
+    // Reminders, not commitments: keep the user free and pop a notification at 9am.
+    transparency: 'transparent',
+    reminders: {
+      useDefault: false,
+      overrides: [{ method: 'popup', minutes: 0 }]
     },
     source: {
       title: 'Spotify Search',

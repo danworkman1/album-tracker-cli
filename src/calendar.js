@@ -7,6 +7,20 @@ export const MONTH_NAMES = [
 
 const MONTH_INDEX = new Map(MONTH_NAMES.map((name, idx) => [name.toLowerCase(), idx]));
 
+// Releases are added as short "free" reminders that pop at 9am on release
+// day, not busy all-day blocks. Every provider renders from these.
+export const REMINDER_START_TIME = '09:00:00';
+export const REMINDER_END_TIME = '09:15:00';
+
+/**
+ * The IANA time zone of the machine running the CLI. A personal tool always
+ * runs where its owner is, so the local zone is the right one for a 9am
+ * reminder. Falls back to UTC if the runtime can't report a zone.
+ */
+export function getLocalTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
 /**
  * Parses Wikipedia's date text (e.g. "January 1") and returns start/end
  * strings in both YYYYMMDD (ICS) and YYYY-MM-DD (Google/Graph) formats.
@@ -77,20 +91,32 @@ export function albumEventContent({ artist, album, genre, label }) {
  * @param {string} timestamp - DTSTAMP value
  * @returns {string}
  */
-function formatEvent({ start, end, artist, album, genre, label }, timestamp) {
+function formatEvent({ start, artist, album, genre, label }, timestamp) {
   const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '');
   const uid = `${sanitize(artist)}-${sanitize(album)}-${start}@spotify-album-tracker`;
   const { summary, spotifySearchUrl, descriptionLines } = albumEventContent({ artist, album, genre, label });
+
+  // Floating local time (no trailing Z) so the reminder fires at 9am in
+  // whatever zone the calendar app is showing.
+  const dtStart = `${start}T${REMINDER_START_TIME.replace(/:/g, '')}`;
+  const dtEnd = `${start}T${REMINDER_END_TIME.replace(/:/g, '')}`;
 
   return [
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${timestamp}`,
-    `DTSTART;VALUE=DATE:${start}`,
-    `DTEND;VALUE=DATE:${end}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
     `SUMMARY:${summary}`,
     `DESCRIPTION:${descriptionLines.join('\\n')}`,
     `URL:${spotifySearchUrl}`,
+    // Reminders shouldn't block time — keep the slot free.
+    'TRANSP:TRANSPARENT',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${summary}`,
+    'TRIGGER:-PT0M',
+    'END:VALARM',
     'END:VEVENT'
   ].join('\r\n');
 }

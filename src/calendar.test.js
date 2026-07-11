@@ -61,7 +61,10 @@ test('generateICS writes one VEVENT per album using each album\'s own year', () 
   ], outputPath);
 
   const ics = fs.readFileSync(outputPath, 'utf-8');
-  assert.ok(ics.includes('DTSTART;VALUE=DATE:20261230'));
-  assert.ok(ics.includes('DTSTART;VALUE=DATE:20270102'));
+  assert.ok(ics.includes('DTSTART:20261230T090000'));
+  assert.ok(ics.includes('DTSTART:20270102T090000'));
   assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 2);
+  // Releases are free 9am reminders, not busy all-day blocks.
+  assert.ok(ics.includes('TRANSP:TRANSPARENT'));
+  assert.equal((ics.match(/BEGIN:VALARM/g) || []).length, 2);
 });

@@ -2,8 +2,13 @@ import prompts from 'prompts';
 import path from 'path';
 import { getUpcomingAlbums } from './scraper.js';
 import { generateICS, MONTH_NAMES } from './calendar.js';
-import { getCredentials, getCachedFollowedArtists, login, syncFollowedArtists, getTopArtists } from './spotify.js';
+import { getCredentials, getCachedFollowedArtists, getCachedTopArtists, getFollowedArtistsSyncedAt, login, syncFollowedArtists, getTopArtists } from './spotify.js';
 import { buildTopArtistRankMap, buildSuggestions, sortAlphabeticallyByArtist } from './suggestions.js';
+
+// Followed artists are read from the local cache on boot; we only call
+// Spotify again once the cache is older than this (or the user passes
+// --refresh), which keeps normal startups fast and offline-friendly.
+const SYNC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 async function waitForEnter(message) {
   await prompts({
@@ -149,6 +154,7 @@ async function main() {
   console.log('=============================================\n');
 
   const creds = getCredentials();
+  const forceRefresh = process.argv.slice(2).includes('--refresh');
   let followedArtists = getCachedFollowedArtists();
   let topArtistRankMap = new Map();
   const isSpotifyConfigured = Boolean(creds.clientId);
@@ -190,14 +196,24 @@ async function main() {
         console.log('Continuing without Spotify personalization.\n');
       }
     } else {
-      try {
-        // Try refreshing and syncing followed artists to keep the cache fresh
-        followedArtists = await syncFollowedArtists();
-        console.log(`Synced followed artists. Found ${followedArtists.length} followed artists.\n`);
-        await loadTopArtistRanks();
-      } catch (err) {
-        console.log(`⚠️  Could not sync Spotify followed artists: ${err.message}`);
-        console.log('Using cached followed artists instead.\n');
+      const cacheAge = Date.now() - getFollowedArtistsSyncedAt();
+      const cacheIsFresh = followedArtists.length > 0 && cacheAge < SYNC_MAX_AGE_MS;
+
+      if (cacheIsFresh && !forceRefresh) {
+        // Fast path: trust the local cache and skip Spotify entirely.
+        topArtistRankMap = buildTopArtistRankMap(getCachedTopArtists());
+        console.log(`Loaded ${followedArtists.length} followed artists from local cache. Run with --refresh to re-sync.\n`);
+      } else {
+        try {
+          // Cache is stale (or forced): re-sync and refresh the local copy.
+          followedArtists = await syncFollowedArtists();
+          console.log(`Synced followed artists. Found ${followedArtists.length} followed artists.\n`);
+          await loadTopArtistRanks();
+        } catch (err) {
+          console.log(`⚠️  Could not sync Spotify followed artists: ${err.message}`);
+          console.log('Using cached followed artists instead.\n');
+          topArtistRankMap = buildTopArtistRankMap(getCachedTopArtists());
+        }
       }
     }
   } else {
@@ -260,10 +276,11 @@ async function main() {
   const suggestions = buildSuggestions(followedAlbums, topArtistRankMap);
   const fullList = sortAlphabeticallyByArtist(enrichedAlbums);
 
+  // Followed artists get a leading star so they're easy to spot, but nothing
+  // is pre-selected — every pick is an explicit choice by the user.
   const toChoice = (album) => ({
-    title: `${album.isFollowed ? '★ [Followed] ' : ''}${album.artist} - ${album.album} (${album.date})`,
-    value: album,
-    selected: album.isFollowed
+    title: `${album.isFollowed ? '★ ' : ''}${album.artist} - ${album.album} (${album.date})`,
+    value: album
   });
 
   const choices = suggestions.length > 0

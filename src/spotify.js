@@ -56,6 +56,23 @@ export function getCachedFollowedArtists() {
 }
 
 /**
+ * The user's top-artist ranking, cached alongside followed artists so a
+ * normal boot can rank suggestions without any Spotify call.
+ */
+export function getCachedTopArtists() {
+  return readAuthFile(AUTH_FILE).topArtists || [];
+}
+
+/**
+ * Epoch ms of the last successful followed-artists sync (0 if never). Boot
+ * uses this to decide whether the local cache is still fresh enough to skip
+ * calling Spotify.
+ */
+export function getFollowedArtistsSyncedAt() {
+  return readAuthFile(AUTH_FILE).followedArtistsSyncedAt || 0;
+}
+
+/**
  * Saves auth config.
  */
 export function saveCredentials(data) {
@@ -176,7 +193,7 @@ export async function syncFollowedArtists() {
     after = data.artists.cursors.after;
   }
 
-  saveCredentials({ followedArtists: artists });
+  saveCredentials({ followedArtists: artists, followedArtistsSyncedAt: Date.now() });
   console.log(`Successfully synced ${artists.length} followed artists!`);
   return artists;
 }
@@ -207,10 +224,14 @@ export async function getTopArtists() {
   }
 
   const data = await response.json();
-  return data.items.map((artist, index) => ({
+  const topArtists = data.items.map((artist, index) => ({
     name: artist.name,
     rank: index + 1
   }));
+
+  // Cache so the next boot can rank suggestions offline.
+  saveCredentials({ topArtists });
+  return topArtists;
 }
 
 // Support running login directly from the npm script
