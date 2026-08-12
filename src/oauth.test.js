@@ -102,6 +102,35 @@ test('requestToken throws with the provider name and response body on failure', 
   server.close();
 });
 
+test('requestToken flags a rejected refresh token as needing re-authentication', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Bad Request' }));
+  });
+  await new Promise(resolve => server.listen(0, resolve));
+  const url = `http://localhost:${server.address().port}/token`;
+
+  try {
+    const refreshBody = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: 'dead' });
+    await assert.rejects(requestToken(url, refreshBody, 'Google Calendar'), (err) => {
+      assert.equal(err.code, 'reauth_required');
+      assert.match(err.message, /Google Calendar authorization has expired or been revoked/);
+      return true;
+    });
+
+    // An invalid_grant while exchanging an auth code is a different problem (a
+    // stale or reused code), so it keeps the raw provider response.
+    const codeBody = new URLSearchParams({ grant_type: 'authorization_code', code: 'stale' });
+    await assert.rejects(requestToken(url, codeBody, 'Google Calendar'), (err) => {
+      assert.equal(err.code, undefined);
+      assert.match(err.message, /Google Calendar token request failed: /);
+      return true;
+    });
+  } finally {
+    server.close();
+  }
+});
+
 async function waitFor(getter) {
   for (let i = 0; i < 100 && !getter(); i++) {
     await new Promise(resolve => setTimeout(resolve, 10));

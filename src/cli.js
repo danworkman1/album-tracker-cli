@@ -87,6 +87,11 @@ async function setupSyncProvider(key) {
   try {
     calendars = await provider.getCalendars();
   } catch (err) {
+    if (err.code === 'reauth_required') {
+      console.log(`\n🔑 Your ${def.label} authorization has expired or been revoked.`);
+      console.log(`Run \`${def.loginScript}\` to reconnect, then start the tracker again.\n`);
+      process.exit(1);
+    }
     console.error(`❌ Failed to fetch ${def.label}s:`, err.message);
     process.exit(1);
   }

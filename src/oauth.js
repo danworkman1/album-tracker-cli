@@ -44,6 +44,14 @@ export function writeAuthFile(filePath, update) {
   return merged;
 }
 
+function parseErrorCode(responseText) {
+  try {
+    return JSON.parse(responseText).error;
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function requestToken(tokenUrl, body, providerName) {
   const response = await fetch(tokenUrl, {
     method: 'POST',
@@ -54,7 +62,19 @@ export async function requestToken(tokenUrl, body, providerName) {
   });
 
   if (!response.ok) {
-    throw new Error(`${providerName} token request failed: ${await response.text()}`);
+    const text = await response.text();
+
+    // `invalid_grant` on a refresh means the stored refresh token is dead —
+    // revoked, or aged out (Google expires them after 7 days while its consent
+    // screen is still in "Testing"). Retrying never helps; only a fresh login
+    // does, so callers get a code they can turn into that instruction.
+    if (body.get('grant_type') === 'refresh_token' && parseErrorCode(text) === 'invalid_grant') {
+      const err = new Error(`${providerName} authorization has expired or been revoked.`);
+      err.code = 'reauth_required';
+      throw err;
+    }
+
+    throw new Error(`${providerName} token request failed: ${text}`);
   }
 
   const data = await response.json();
