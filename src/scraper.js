@@ -7,37 +7,52 @@ import * as cheerio from 'cheerio';
  * @returns {Promise<Array>} - Array of album objects: { date, artist, album, genre, label }
  */
 export async function getUpcomingAlbums(monthName, year) {
-  const url = `https://en.wikipedia.org/wiki/List_of_${year}_albums`;
-  
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'SpotifyAlbumTrackerCLI/1.0 (danielworkman@example.com)'
-    }
-  });
+  // Wikipedia splits busy years into half-year pages and turns the plain
+  // "List of YYYY albums" page into a stub with no tables (2026 did this).
+  // Try the plain page first, then the split pages, and use the first one
+  // that has the month's table.
+  const urls = [
+    `https://en.wikipedia.org/wiki/List_of_${year}_albums`,
+    `https://en.wikipedia.org/wiki/List_of_${year}_albums_(January%E2%80%93June)`,
+    `https://en.wikipedia.org/wiki/List_of_${year}_albums_(July%E2%80%93December)`
+  ];
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Wikipedia page: ${response.statusText}`);
-  }
-
-  const html = await response.text();
-  const $ = cheerio.load(html);
-  
-  const albums = [];
-  let activeDate = '';
-
-  // Find the table whose caption contains the target month and year
-  // E.g. "List of albums released in January 2026"
+  let $ = null;
   let targetTable = null;
-  $('table.wikitable').each((index, element) => {
-    const captionText = $(element).find('caption').text().trim();
-    if (captionText.toLowerCase().includes(`${monthName.toLowerCase()} ${year}`)) {
-      targetTable = element;
+
+  for (const url of urls) {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'SpotifyAlbumTrackerCLI/1.0 (danielworkman@example.com)'
+      }
+    });
+
+    // A missing split page just means this year isn't split that way.
+    if (response.status === 404) continue;
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Wikipedia page: ${response.statusText}`);
     }
-  });
+
+    $ = cheerio.load(await response.text());
+
+    // Find the table whose caption contains the target month and year
+    // E.g. "List of albums released in January 2026"
+    $('table.wikitable').each((index, element) => {
+      const captionText = $(element).find('caption').text().trim();
+      if (captionText.toLowerCase().includes(`${monthName.toLowerCase()} ${year}`)) {
+        targetTable = element;
+      }
+    });
+
+    if (targetTable) break;
+  }
 
   if (!targetTable) {
     return [];
   }
+
+  const albums = [];
+  let activeDate = '';
 
   // Parse rows of the matching table
   $(targetTable).find('tbody tr').each((index, tr) => {
