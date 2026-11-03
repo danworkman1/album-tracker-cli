@@ -4,6 +4,8 @@ A local Node.js CLI tool that scrapes upcoming album releases from Wikipedia, le
 
 It also integrates with Spotify to highlight upcoming albums from artists you follow!
 
+> **Web app:** there's also a Cloudflare Worker version in [`web/`](web/README.md) that keeps Google and Spotify connected and lets you add releases with one click. The CLI below still works as before.
+
 ---
 
 ## Features
