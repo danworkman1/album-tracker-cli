@@ -36,7 +36,8 @@ test('refresh inserts rows with ISO dates and timestamps', async () => {
     release_date: '2026-11-06',
     genre: 'Prog',
     label: 'RCA',
-    first_seen_at: NOW1.getTime(),
+    // A month's first-ever load is the baseline, not "new" (see the New badge tests below).
+    first_seen_at: 0,
     last_seen_at: NOW1.getTime(),
     added_at: null
   });
@@ -58,12 +59,36 @@ test('a second refresh keeps first_seen_at and added_at but updates genre, label
 
   const tool = (await all()).find((r) => r.artist === 'Tool');
   expect(tool).toMatchObject({
-    first_seen_at: NOW1.getTime(),
+    first_seen_at: 0,
     last_seen_at: NOW2.getTime(),
     added_at: 123,
     genre: 'Prog',
     label: 'RCA'
   });
+});
+
+test('a month first loaded in bulk is not New, but albums announced after that are', async () => {
+  const month = (rows) => stub({ November: rows, December: [row('December 1', 'X', 'Y')] });
+  await refreshAlbums(env, { now: NOW1, fetchMonth: month([row('November 6', 'Tool', 'New LP')]) });
+  await refreshAlbums(env, {
+    now: NOW2,
+    fetchMonth: month([row('November 6', 'Tool', 'New LP'), row('November 9', 'Abba', 'Voyage')])
+  });
+
+  const releases = await listReleases(env.DB, { today: '2026-11-01', nowMs: NOW2.getTime() });
+  const isNew = Object.fromEntries(releases.map((r) => [r.artist, r.isNew]));
+  expect(isNew).toEqual({ Tool: false, Abba: true, X: false });
+});
+
+test('a month that came back empty is still treated as a first load when it later appears', async () => {
+  await refreshAlbums(env, { now: NOW1, fetchMonth: stub({ November: [], December: [row('December 1', 'X', 'Y')] }) });
+  await refreshAlbums(env, {
+    now: NOW2,
+    fetchMonth: stub({ November: [row('November 6', 'Tool', 'New LP')], December: [row('December 1', 'X', 'Y')] })
+  });
+
+  const tool = (await all()).find((r) => r.artist === 'Tool');
+  expect(tool.first_seen_at).toBe(0);
 });
 
 test('a month that scrapes as zero albums keeps its rows and records a warning', async () => {

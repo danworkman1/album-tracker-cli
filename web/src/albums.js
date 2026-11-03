@@ -1,6 +1,6 @@
 import { parseWikiDate } from '../../src/calendar.js';
 import { getUpcomingAlbums } from '../../src/scraper.js';
-import { setMeta } from './store.js';
+import { getMeta, setMeta } from './store.js';
 import { monthBounds, todayInZone, windowMonths } from './window.js';
 
 const NEW_FOR_MS = 7 * 24 * 60 * 60 * 1000;
@@ -33,6 +33,12 @@ export async function refreshAlbums(env, { now = new Date(), fetchMonth = getUpc
      ON CONFLICT(id) DO UPDATE SET genre = excluded.genre, label = excluded.label, last_seen_at = excluded.last_seen_at`
   );
 
+  // Months we've already loaded once. A month's first-ever load is the
+  // baseline (first_seen_at = 0, so never "New"): otherwise the whole first
+  // week, and every incoming month's 100+ long-announced albums, would be New
+  // and bury the few that really were announced since your last visit.
+  const loaded = new Set(JSON.parse((await getMeta(env.DB, 'loaded_months')) ?? '[]'));
+
   for (const { monthName, year } of windowMonths(today)) {
     let rows;
     try {
@@ -53,21 +59,25 @@ export async function refreshAlbums(env, { now = new Date(), fetchMonth = getUpc
       continue;
     }
 
+    const { from, to } = monthBounds(monthName, year);
+    const monthKey = from.slice(0, 7);
+    const firstSeenAt = loaded.has(monthKey) ? nowMs : 0;
+
     const statements = [];
     for (const r of releases) {
       const id = await albumId(r.artist, r.album, r.releaseDate);
       statements.push(
-        upsert.bind(id, r.artist, r.artist.toLowerCase(), r.album, r.releaseDate, r.genre, r.label, nowMs, nowMs)
+        upsert.bind(id, r.artist, r.artist.toLowerCase(), r.album, r.releaseDate, r.genre, r.label, firstSeenAt, nowMs)
       );
     }
     for (let i = 0; i < statements.length; i += BATCH_SIZE) {
       await env.DB.batch(statements.slice(i, i + BATCH_SIZE));
     }
     upserted += releases.length;
+    loaded.add(monthKey);
 
     // Anything in this month that Wikipedia no longer lists (a release that
     // moved date, say) and that isn't in the calendar yet is stale.
-    const { from, to } = monthBounds(monthName, year);
     await env.DB.prepare(
       'DELETE FROM albums WHERE release_date >= ? AND release_date < ? AND added_at IS NULL AND last_seen_at < ?'
     )
@@ -75,6 +85,7 @@ export async function refreshAlbums(env, { now = new Date(), fetchMonth = getUpc
       .run();
   }
 
+  await setMeta(env.DB, 'loaded_months', JSON.stringify([...loaded]));
   await setMeta(env.DB, 'albums_warnings', JSON.stringify(warnings));
   await setMeta(env.DB, 'albums_synced_at', String(nowMs));
   return { upserted, warnings };

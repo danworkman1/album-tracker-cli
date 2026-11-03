@@ -51,8 +51,9 @@ Run everything from `web/`, prefixed with `eval "$(/opt/homebrew/bin/fnm env)" &
 
 7. **Deploy.**
    ```bash
-   pnpm deploy
+   pnpm run deploy
    ```
+   (`pnpm deploy` on its own is a different pnpm command and won't run this script.)
 
 8. **First run.** Open the site (you'll go through the Access login), click **Connect Google** and **Connect Spotify**, then **Re-sync Spotify** and **Refresh releases**. After that the crons keep it current (albums at 18:00 UTC, Spotify at 18:05 UTC).
 
@@ -79,5 +80,6 @@ Runs in the Workers runtime with a real (in-memory) D1 database. External calls 
 
 - Artists are matched to your followed list by exact lowercase name, same as the CLI, so a Wikipedia cell like "A and B" won't match a followed artist.
 - If you delete a reminder from Google Calendar, adding it again fails: Google keeps the cancelled event's id. The CLI behaves the same way.
-- If "Refresh releases" returns 0 in production but works locally, Wikipedia may be blocking Cloudflare's outbound requests. The fix would be to switch the scraper to Wikipedia's `api.php?action=parse` endpoint.
-- Free-plan limit: a Worker invocation may make 50 subrequests. A 1,700-artist Spotify sync uses about 35, which is why albums and Spotify run as separate crons.
+- **This needs the Workers Paid plan.** Refreshing releases parses one ~2.6 MB Wikipedia page with cheerio, which measured about 0.3 to 0.4 s of CPU and 60 to 80 MB of heap per month on a laptop. The Free plan allows 10 ms of CPU per request or cron run and 128 MB of memory, so the refresh can't run there. Paid allows 30 seconds of CPU by default. A Free-plan version would need a much lighter fetch (for example Wikipedia's `api.php?action=parse&section=N`, about 130 KB per month, or streaming `HTMLRewriter`), and even then 10 ms isn't guaranteed.
+- If "Refresh releases" fails in production but works locally, check the Worker's logs first: `exceededCpu` or `exceededMemory` means the limits above (wrong plan), not Wikipedia. Only if the logs show a Wikipedia 403 or 429 is it blocking Cloudflare's outbound requests.
+- Subrequests: a Worker invocation may make 50 on the Free plan. A 1,700-artist Spotify sync uses about 35, which is why albums and Spotify run as separate crons.

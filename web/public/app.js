@@ -1,6 +1,8 @@
 // Everything from Wikipedia and Spotify goes into the page with textContent,
 // never innerHTML, so a hostile album title can't run script.
 
+import { api } from '/api.js';
+
 const PROVIDER_NAMES = { google: 'Google', spotify: 'Spotify' };
 
 let state = null;
@@ -31,17 +33,6 @@ function relativeTime(ms) {
 function formatDate(isoDate) {
   const [y, m, d] = isoDate.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-async function api(method, path) {
-  const res = await fetch(path, { method });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch {
-    // Non-JSON body (e.g. a proxy error page); leave data null.
-  }
-  return { ok: res.ok, status: res.status, data };
 }
 
 function errorText(result) {
