@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import {
   deleteRefreshToken,
   getMeta,
+  hasRefreshToken,
   loadRefreshToken,
   saveRefreshToken,
   setMeta
@@ -37,6 +38,16 @@ test('a deleted token loads as null', async () => {
 
 test('a token that was never saved loads as null', async () => {
   expect(await loadRefreshToken(env, 'google')).toBeNull();
+});
+
+test('hasRefreshToken reports whether a token is stored, without decrypting it', async () => {
+  expect(await hasRefreshToken(env, 'google')).toBe(false);
+  await saveRefreshToken(env, 'google', 'tok');
+  expect(await hasRefreshToken(env, 'google')).toBe(true);
+  // A wrong key can't decrypt, but "connected" must still be answerable.
+  expect(await hasRefreshToken({ ...env, TOKEN_ENCRYPTION_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=' }, 'google')).toBe(true);
+  await deleteRefreshToken(env, 'google');
+  expect(await hasRefreshToken(env, 'google')).toBe(false);
 });
 
 test('a missing meta key is null', async () => {

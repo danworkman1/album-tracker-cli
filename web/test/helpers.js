@@ -1,4 +1,42 @@
+import { env } from 'cloudflare:workers';
 import { vi } from 'vitest';
+
+/**
+ * A plain env for handler tests, with a stub ASSETS binding. Pass `extra` to
+ * override or add vars (e.g. DEV_BYPASS_ACCESS).
+ */
+export function testEnv(extra = {}) {
+  return {
+    DB: env.DB,
+    TOKEN_ENCRYPTION_KEY: env.TOKEN_ENCRYPTION_KEY,
+    TIMEZONE: env.TIMEZONE,
+    GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
+    SPOTIFY_CLIENT_ID: env.SPOTIFY_CLIENT_ID,
+    GOOGLE_CALENDAR_ID: env.GOOGLE_CALENDAR_ID,
+    ACCESS_TEAM_DOMAIN: env.ACCESS_TEAM_DOMAIN,
+    ACCESS_AUD: env.ACCESS_AUD,
+    ASSETS: { fetch: async () => new Response('asset') },
+    ...extra
+  };
+}
+
+/** One Wikipedia month table in the shape src/scraper.js parses. rows: [date, artist, album, genre, label][] */
+export function monthTable(monthName, year, rows) {
+  const body = rows
+    .map(
+      ([date, artist, album, genre = '', label = '']) =>
+        `<tr><th scope="row">${date}</th><td>${artist}</td><td>${album}</td><td>${genre}</td><td>${label}</td><td>[1]</td></tr>`
+    )
+    .join('');
+  return (
+    `<table class="wikitable"><caption>List of albums released in ${monthName} ${year}</caption><tbody>` +
+    `<tr><th scope="col">Release date</th><th scope="col">Artist</th><th scope="col">Album</th><th scope="col">Genre</th><th scope="col">Label</th><th scope="col">Ref.</th></tr>` +
+    `${body}</tbody></table>`
+  );
+}
+
+export const htmlPage = (...tables) => new Response(`<html><body>${tables.join('')}</body></html>`);
 
 export const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

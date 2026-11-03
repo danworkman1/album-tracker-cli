@@ -15,6 +15,12 @@ export async function loadRefreshToken(env, provider) {
   return row ? decrypt(row.refresh_token_enc, env.TOKEN_ENCRYPTION_KEY) : null;
 }
 
+/** Cheap "is it connected" check that doesn't decrypt anything. */
+export async function hasRefreshToken(env, provider) {
+  const row = await env.DB.prepare('SELECT 1 AS present FROM tokens WHERE provider = ?').bind(provider).first();
+  return row !== null;
+}
+
 export async function deleteRefreshToken(env, provider) {
   await env.DB.prepare('DELETE FROM tokens WHERE provider = ?').bind(provider).run();
 }
