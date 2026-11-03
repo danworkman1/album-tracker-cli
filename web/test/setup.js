@@ -1,8 +1,12 @@
 import { applyD1Migrations } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
-import { beforeEach } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // The Workers Vitest plugin isolates storage per test file, not per test, so
 // start every test from empty tables.
