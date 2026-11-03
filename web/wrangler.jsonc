@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "album-tracker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "album-tracker",
+      // Replace with the id printed by `wrangler d1 create album-tracker`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // run_worker_first so the Worker (and its Access check) sees every request,
+  // including static files.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  // Keep in step with ALBUMS_CRON / SPOTIFY_CRON in src/cron.js.
+  "triggers": { "crons": ["0 18 * * *", "5 18 * * *"] },
+  "vars": {
+    // IANA zone used for "today" and the 9am reminder time. Change to yours.
+    "TIMEZONE": "Australia/Sydney",
+    "GOOGLE_CLIENT_ID": "",
+    "SPOTIFY_CLIENT_ID": "",
+    "GOOGLE_CALENDAR_ID": "primary",
+    "ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com",
+    "ACCESS_AUD": ""
+  }
+}

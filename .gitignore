@@ -17,3 +17,7 @@ RUST-LEARNING-PLAN.md
 .codebase-memory
 docs/superpowers
 .superpowers
+
+# Cloudflare Worker (web/): local secrets and wrangler state
+.dev.vars
+.wrangler/
