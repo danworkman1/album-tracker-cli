@@ -1,1 +1,37 @@
-<!doctype html><title>x</title>
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Album Tracker</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Album Tracker</h1>
+    <p id="updated" class="muted"></p>
+    <div class="actions">
+      <button id="refresh-albums" type="button">Refresh releases</button>
+      <button id="sync-spotify" type="button">Re-sync Spotify</button>
+    </div>
+  </header>
+
+  <div id="banners" aria-live="polite"></div>
+
+  <main>
+    <section>
+      <h2>From artists you follow</h2>
+      <ul id="followed" class="releases"></ul>
+      <p id="followed-empty" class="muted" hidden></p>
+    </section>
+
+    <details id="all-wrap">
+      <summary>All releases <span id="all-count" class="muted"></span></summary>
+      <input id="filter" type="search" placeholder="Filter by artist or album" autocomplete="off" aria-label="Filter releases">
+      <ul id="all" class="releases"></ul>
+    </details>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
