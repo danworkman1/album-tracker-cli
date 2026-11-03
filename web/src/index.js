@@ -1,4 +1,5 @@
 import { verifyAccess } from './access.js';
+import { runScheduled } from './cron.js';
 import { handleRequest } from './routes.js';
 
 export default {
@@ -8,5 +9,10 @@ export default {
       return new Response('Forbidden', { status: 403 });
     }
     return handleRequest(request, env);
+  },
+
+  // Cron triggers don't come through Access, so there's nothing to verify.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(runScheduled(controller.cron, env));
   }
 };
