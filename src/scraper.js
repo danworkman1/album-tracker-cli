@@ -1,4 +1,7 @@
-import * as cheerio from 'cheerio';
+// The slim build parses with htmlparser2 instead of parse5: about 3x less CPU
+// and 4x less memory on Wikipedia's 2.6 MB pages, with identical output here.
+import * as cheerio from 'cheerio/slim';
+import { MONTH_NAMES } from './calendar.js';
 
 /**
  * Scrapes Wikipedia for albums released in a specific month and year.
@@ -9,18 +12,24 @@ import * as cheerio from 'cheerio';
 export async function getUpcomingAlbums(monthName, year) {
   // Wikipedia splits busy years into half-year pages and turns the plain
   // "List of YYYY albums" page into a stub with no tables (2026 did this).
-  // Try the plain page first, then the split pages, and use the first one
-  // that has the month's table.
-  const urls = [
-    `https://en.wikipedia.org/wiki/List_of_${year}_albums`,
-    `https://en.wikipedia.org/wiki/List_of_${year}_albums_(January%E2%80%93June)`,
-    `https://en.wikipedia.org/wiki/List_of_${year}_albums_(July%E2%80%93December)`
-  ];
+  // Try the month's own half-year page first, then the plain page, then the
+  // other half, and use the first one that has the month's table. Order
+  // matters: each half-year page is ~2.6 MB, so fetching and parsing the wrong
+  // one first costs real CPU and memory (a Cloudflare Worker has 128 MB).
+  const plain = `https://en.wikipedia.org/wiki/List_of_${year}_albums`;
+  const firstHalf = `${plain}_(January%E2%80%93June)`;
+  const secondHalf = `${plain}_(July%E2%80%93December)`;
+  const urls = MONTH_NAMES.indexOf(monthName) < 6 ? [firstHalf, plain, secondHalf] : [secondHalf, plain, firstHalf];
 
   let $ = null;
   let targetTable = null;
 
   for (const url of urls) {
+    // Drop the previous page's parsed DOM before building the next one, so two
+    // big documents are never alive at once.
+    $ = null;
+    targetTable = null;
+
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'SpotifyAlbumTrackerCLI/1.0 (danielworkman@example.com)'

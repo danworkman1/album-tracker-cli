@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `pnpm dev`. Never commit the real file.
+DEV_BYPASS_ACCESS=true
+GOOGLE_CLIENT_SECRET=dummy
+# base64 of 32 random bytes, e.g. from: openssl rand -base64 32
+TOKEN_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
