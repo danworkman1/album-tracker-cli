@@ -42,6 +42,8 @@ export async function exchangeSpotifyCode(env, { code, redirectUri, verifier }) 
   );
   if (!data.refresh_token) throw new Error('Spotify did not return a refresh token');
   await saveRefreshToken(env, 'spotify', data.refresh_token);
+  // Connecting again fixes whatever the last sync complained about.
+  await setMeta(env.DB, 'spotify_error', '');
 }
 
 /**
@@ -84,6 +86,12 @@ async function storeFollowedArtists(env) {
     artists.push(...data.artists.items.map((a) => a.name));
     hasMore = data.artists.next !== null;
     after = data.artists.cursors.after;
+  }
+
+  // A 200 with nobody in it is more likely a different account or an API quirk
+  // than "follows nobody"; don't wipe the list on it.
+  if (artists.length === 0) {
+    throw new Error('Spotify returned no followed artists; keeping the previous list');
   }
 
   const statements = [env.DB.prepare('DELETE FROM followed_artists')];

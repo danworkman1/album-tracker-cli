@@ -150,9 +150,22 @@ test('rows without a parseable date are skipped', async () => {
   expect((await all()).map((r) => r.artist)).toEqual(['Tool', 'X']);
 });
 
-test('refresh records when it last ran', async () => {
-  await refreshAlbums(env, { now: NOW1, fetchMonth: stub({}) });
+test('refresh records when it last loaded albums', async () => {
+  await refreshAlbums(env, { now: NOW1, fetchMonth: stub({ November: [row('November 6', 'Tool', 'New LP')] }) });
   expect(await getMeta(env.DB, 'albums_synced_at')).toBe(String(NOW1.getTime()));
+});
+
+test('a refresh that loads nothing leaves the last-updated time alone', async () => {
+  await refreshAlbums(env, { now: NOW1, fetchMonth: stub({ November: [row('November 6', 'Tool', 'New LP')] }) });
+  // Wikipedia is down: every month fails or comes back empty.
+  await refreshAlbums(env, { now: NOW2, fetchMonth: stub({ November: new Error('boom'), December: [] }) });
+
+  expect(await getMeta(env.DB, 'albums_synced_at')).toBe(String(NOW1.getTime()));
+});
+
+test('a refresh that never loaded anything has no last-updated time', async () => {
+  await refreshAlbums(env, { now: NOW1, fetchMonth: stub({}) });
+  expect(await getMeta(env.DB, 'albums_synced_at')).toBeNull();
 });
 
 test('refresh uses the configured timezone for the window', async () => {

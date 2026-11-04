@@ -10,7 +10,7 @@ import {
   requestToken,
   stateCookie
 } from '../src/oauth.js';
-import { deleteRefreshToken, loadRefreshToken, saveRefreshToken } from '../src/store.js';
+import { deleteRefreshToken, hasRefreshToken, loadRefreshToken, saveRefreshToken } from '../src/store.js';
 import { json, stubFetch } from './helpers.js';
 
 const CFG = {
@@ -127,6 +127,34 @@ test('getAccessToken deletes a dead token and asks for reauth', async () => {
   expect(err.code).toBe('reauth_required');
   expect(err.provider).toBe('google');
   expect(await loadRefreshToken(env, 'google')).toBeNull();
+});
+
+test('getAccessToken treats a token it cannot decrypt as a dead connection', async () => {
+  await saveRefreshToken(env, 'google', 'stored');
+  const calls = stubFetch(() => json({ access_token: 'a', expires_in: 3600 }));
+  // A rotated or mistyped encryption key can't read what the old one wrote.
+  const wrongKey = { ...env, TOKEN_ENCRYPTION_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=' };
+
+  const err = await getAccessToken(wrongKey, CFG).catch((e) => e);
+
+  expect(err.code).toBe('reauth_required');
+  expect(err.provider).toBe('google');
+  expect(await hasRefreshToken(env, 'google')).toBe(false);
+  expect(calls).toHaveLength(0);
+});
+
+test('a dead token does not delete a newer one stored in the meantime', async () => {
+  await saveRefreshToken(env, 'spotify', 'old');
+  // While our refresh is in flight, another run rotates the token.
+  stubFetch(async () => {
+    await saveRefreshToken(env, 'spotify', 'rotated');
+    return json({ error: 'invalid_grant' }, 400);
+  });
+
+  const err = await getAccessToken(env, { ...CFG, provider: 'spotify', providerName: 'Spotify' }).catch((e) => e);
+
+  expect(err.code).toBe('reauth_required');
+  expect(await loadRefreshToken(env, 'spotify')).toBe('rotated');
 });
 
 test('getAccessToken keeps the token on a transient failure', async () => {

@@ -75,23 +75,35 @@ export async function addAlbumToCalendar(env, albumId) {
   const token = await getAccessToken(env, tokenConfig(env));
   const event = buildEventBody({ ...row, releaseDate: row.release_date }, env.TIMEZONE);
 
-  const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(event)
-    }
-  );
+  const eventsUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID)}/events`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const call = (url, method, body) => fetch(url, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
 
-  // 409 means an event with this id already exists (a double click, or the CLI
-  // added it), which is the outcome we wanted anyway.
-  if (response.status !== 409 && !response.ok) {
+  let response = await call(eventsUrl, 'POST', event);
+  let status = 'success';
+
+  // 409 means an event with this id exists. Usually it's live (a double click,
+  // or the CLI added it) and we're done. But deleting a reminder leaves its id
+  // reserved as a "cancelled" event, so the insert would fail for good and
+  // "Added" would be a lie: restore it instead.
+  if (response.status === 409) {
+    const eventUrl = `${eventsUrl}/${encodeURIComponent(albumId)}`;
+    const existing = await call(eventUrl, 'GET');
+    if (existing.ok && (await existing.json()).status !== 'cancelled') {
+      status = 'duplicate';
+    } else if (existing.ok || existing.status === 404 || existing.status === 410) {
+      response = await call(eventUrl, 'PUT', { ...event, status: 'confirmed' });
+    } else {
+      response = existing;
+    }
+  }
+
+  if (status === 'success' && !response.ok) {
     throw new Error(`Google Calendar API Error: ${await response.text()}`);
   }
 
   await env.DB.prepare('UPDATE albums SET added_at = COALESCE(added_at, ?) WHERE id = ?')
     .bind(Date.now(), albumId)
     .run();
-  return { status: response.status === 409 ? 'duplicate' : 'success' };
+  return { status };
 }

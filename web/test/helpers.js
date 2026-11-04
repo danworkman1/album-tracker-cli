@@ -75,7 +75,7 @@ export const stubProvider = (tokenUrl, apiResponse) =>
 export const followingPage = (names, after = null, next = null) =>
   json({ artists: { items: names.map((name, i) => ({ name, id: `${name}-${i}` })), next, cursors: { after } } });
 
-/** The md5 of "tool-new lp-2026-11-06": the id (and Google event id) of the album seedAlbum inserts. */
+/** A fixed id for the album seedAlbum inserts. It isn't derived from the row's date; albums.test.js checks the md5 recipe. */
 export const ALBUM_ID = '3022de89cdaba1b64b5366b86565d6d3';
 
 /** Inserts the one album handler tests share: Tool, "New LP". */

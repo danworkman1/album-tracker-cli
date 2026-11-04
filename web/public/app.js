@@ -54,6 +54,8 @@ function renderBanners() {
   for (const warning of state.warnings) box.append(el('div', { className: 'banner', text: warning }));
 
   for (const provider of ['google', 'spotify']) {
+    // Unknown (the state request failed): don't tell a connected user to connect again.
+    if (state[provider].connected === undefined) continue;
     const connected = state[provider].connected && !needsReconnect.has(provider);
     if (connected) continue;
     const name = PROVIDER_NAMES[provider];
@@ -86,7 +88,7 @@ function renderFollowed() {
   $('followed').replaceChildren(...followed.map(releaseRow));
 
   const empty = $('followed-empty');
-  empty.hidden = followed.length > 0;
+  empty.hidden = followed.length > 0 || state.spotify.connected === undefined;
   empty.textContent = state.spotify.connected
     ? 'None of the artists you follow have releases in this window.'
     : 'Connect Spotify to see releases from artists you follow.';
@@ -134,9 +136,8 @@ async function addRelease(release, button) {
   } else {
     message = `Could not add "${release.album}": ${errorText(result)}`;
   }
+  // render() rebuilds every row, which puts this one's button back to "Add".
   render();
-  button.disabled = false;
-  button.textContent = 'Add';
 }
 
 async function runAction(button, busyLabel, path, onSuccess) {

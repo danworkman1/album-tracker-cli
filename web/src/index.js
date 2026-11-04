@@ -12,7 +12,7 @@ export default {
   },
 
   // Cron triggers don't come through Access, so there's nothing to verify.
-  async scheduled(controller, env, ctx) {
-    ctx.waitUntil(runScheduled(controller.cron, env));
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(runScheduled(env));
   }
 };

@@ -21,7 +21,13 @@ export async function hasRefreshToken(env, provider) {
   return row !== null;
 }
 
-export async function deleteRefreshToken(env, provider) {
+/**
+ * Removes a stored token. With `onlyIfToken`, only while the stored token is
+ * still that one, so a run holding a dead token can't delete a newer one that
+ * another run saved in the meantime.
+ */
+export async function deleteRefreshToken(env, provider, onlyIfToken) {
+  if (onlyIfToken !== undefined && (await loadRefreshToken(env, provider)) !== onlyIfToken) return;
   await env.DB.prepare('DELETE FROM tokens WHERE provider = ?').bind(provider).run();
 }
 

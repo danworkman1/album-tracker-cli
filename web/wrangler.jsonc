@@ -20,8 +20,8 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
-  // Keep in step with ALBUMS_CRON / SPOTIFY_CRON in src/cron.js.
-  "triggers": { "crons": ["0 18 * * *", "5 18 * * *"] },
+  // One daily run (18:00 UTC): refreshes albums, then syncs Spotify. See runScheduled in src/cron.js.
+  "triggers": { "crons": ["0 18 * * *"] },
   "vars": {
     // IANA zone used for "today" and the 9am reminder time. Change to yours.
     "TIMEZONE": "Australia/Sydney",

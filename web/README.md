@@ -2,21 +2,19 @@
 
 A single-user Cloudflare Worker that does what the CLI does, without the terminal:
 
-- A daily cron scrapes Wikipedia for this month's and next month's releases into D1.
-- A second daily cron (plus a **Re-sync Spotify** button) refreshes the artists you follow.
+- A daily cron scrapes Wikipedia for this month's and next month's releases into D1, then refreshes the artists you follow on Spotify. A **Re-sync Spotify** button (and a **Refresh releases** one) do the same on demand.
 - The page lists releases from artists you follow first, then everything A to Z, and each row has an **Add** button that puts a free 9am reminder in your Google Calendar.
 - You sign in to Google and Spotify once. The Worker keeps the refresh tokens (AES-GCM encrypted in D1) and renews access tokens itself.
 - Cloudflare Access gates the whole thing, and the Worker checks the Access token too, so the bare `workers.dev` URL can't be used to skip the login.
 
-Source layout, task by task, is in `docs/superpowers/plans/2026-11-01-album-tracker-web.md` (local only, gitignored).
-
 ## First-time setup
 
-Run everything from `web/`, prefixed with `eval "$(/opt/homebrew/bin/fnm env)" &&` on this machine.
+Run these from `web/` unless it says otherwise. You need Node and pnpm.
 
-1. **Install and create the database.**
+1. **Install and create the database.** The Worker reuses the CLI's scraper, which needs `cheerio` from the repo root, so install in both places:
    ```bash
-   pnpm install
+   pnpm install          # at the repo root
+   cd web && pnpm install
    pnpm wrangler d1 create album-tracker
    ```
    Put the `database_id` it prints into `wrangler.jsonc`, then create the tables:
@@ -25,7 +23,7 @@ Run everything from `web/`, prefixed with `eval "$(/opt/homebrew/bin/fnm env)" &
    ```
 
 2. **Google Cloud console** (same project as the CLI is fine).
-   - Add these authorised redirect URIs to the OAuth client:
+   - Add these authorised redirect URIs to the OAuth client (your workers.dev subdomain is under Workers & Pages, Account details):
      - `https://album-tracker.<your-workers-subdomain>.workers.dev/auth/google/callback`
      - `http://127.0.0.1:8787/auth/google/callback` (local dev)
    - **Set the OAuth consent screen's publishing status to "In production".** While it says "Testing", Google expires refresh tokens after 7 days and the app will keep asking you to reconnect. Expect a one-off "Google hasn't verified this app" screen when you connect; that's normal for a personal app.
@@ -34,39 +32,37 @@ Run everything from `web/`, prefixed with `eval "$(/opt/homebrew/bin/fnm env)" &
    - `https://album-tracker.<your-workers-subdomain>.workers.dev/auth/spotify/callback`
    - `http://127.0.0.1:8787/auth/spotify/callback` (local dev)
 
-4. **Cloudflare Access.** Put the Worker behind Access with a policy that allows only your email (Workers & Pages, the Worker's Settings, Domains & Routes, enable Cloudflare Access; the dashboard wording may differ slightly). Then copy two values into `wrangler.jsonc`:
-   - `ACCESS_TEAM_DOMAIN`: your team domain, like `your-team.cloudflareaccess.com`
-   - `ACCESS_AUD`: the application's Audience (AUD) tag
+4. **Config in `wrangler.jsonc`.** Set `TIMEZONE` (an IANA name, e.g. `Australia/Sydney`; it decides what "today" is and the time zone of the 9am reminder), `GOOGLE_CLIENT_ID` and `SPOTIFY_CLIENT_ID`. `GOOGLE_CALENDAR_ID` defaults to `primary`.
 
-   Until both are set the Worker refuses every request (it fails closed).
+5. **First deploy.**
+   ```bash
+   pnpm run deploy
+   ```
+   (`pnpm deploy` on its own is a different pnpm command and won't run this script.) The Worker now exists, but it answers 403 to everything until Access is set up in step 7. That's expected: it fails closed.
 
-5. **Config in `wrangler.jsonc`.** Set `TIMEZONE` (an IANA name, e.g. `Australia/Sydney`; it decides what "today" is and the time zone of the 9am reminder), `GOOGLE_CLIENT_ID` and `SPOTIFY_CLIENT_ID`. `GOOGLE_CALENDAR_ID` defaults to `primary`.
-
-6. **Secrets.** These never go in a file or the terminal output:
+6. **Secrets.** These never go in a file or the terminal output, and they need the Worker from step 5 to exist:
    ```bash
    openssl rand -base64 32 | pnpm wrangler secret put TOKEN_ENCRYPTION_KEY
    pnpm wrangler secret put GOOGLE_CLIENT_SECRET   # paste at the prompt
    ```
    Don't lose `TOKEN_ENCRYPTION_KEY`: without it the stored tokens can't be read and you'd reconnect Google and Spotify.
 
-7. **Deploy.**
-   ```bash
-   pnpm run deploy
-   ```
-   (`pnpm deploy` on its own is a different pnpm command and won't run this script.)
+7. **Cloudflare Access.** Put the Worker behind Access with a policy that allows only your email (Workers & Pages, the Worker's Settings, Domains & Routes, enable Cloudflare Access; the dashboard wording may differ slightly). Copy two values into `wrangler.jsonc`, then run `pnpm run deploy` again:
+   - `ACCESS_TEAM_DOMAIN`: your team domain, like `your-team.cloudflareaccess.com`
+   - `ACCESS_AUD`: the application's Audience (AUD) tag
 
-8. **First run.** Open the site (you'll go through the Access login), click **Connect Google** and **Connect Spotify**, then **Re-sync Spotify** and **Refresh releases**. After that the crons keep it current (albums at 18:00 UTC, Spotify at 18:05 UTC).
+8. **First run.** Open the site (you'll go through the Access login), click **Connect Google** and **Connect Spotify**, then **Re-sync Spotify** and **Refresh releases**. After that the daily cron (18:00 UTC) keeps it current.
 
 ## Local development
 
 ```bash
 pnpm wrangler d1 migrations apply DB --local
-pnpm dev        # http://127.0.0.1:8787
+pnpm dev
 ```
 
-`pnpm dev` needs a `.dev.vars` file (gitignored) next to `wrangler.jsonc`. Copy `.dev.vars.example` and set `DEV_BYPASS_ACCESS=true` so you don't need an Access login locally. Never set that variable in production.
+Open `http://127.0.0.1:8787`, not the `localhost` address wrangler may print: the redirect URIs above are registered for `127.0.0.1`, and Google and Spotify reject a different host with `redirect_uri_mismatch`.
 
-Add the two `127.0.0.1:8787` redirect URIs above if you want to test the Google and Spotify connect flows locally.
+`pnpm dev` needs a `.dev.vars` file (gitignored) next to `wrangler.jsonc`. Copy `.dev.vars.example` and set `DEV_BYPASS_ACCESS=true` so you don't need an Access login locally. Never set that variable in production.
 
 ## Tests
 
@@ -78,8 +74,8 @@ Runs in the Workers runtime with a real (in-memory) D1 database. External calls 
 
 ## Known limits
 
-- Artists are matched to your followed list by exact lowercase name, same as the CLI, so a Wikipedia cell like "A and B" won't match a followed artist.
-- If you delete a reminder from Google Calendar, adding it again fails: Google keeps the cancelled event's id. The CLI behaves the same way.
-- **This needs the Workers Paid plan.** Refreshing releases parses one ~2.6 MB Wikipedia page with cheerio, which measured about 0.3 to 0.4 s of CPU and 60 to 80 MB of heap per month on a laptop. The Free plan allows 10 ms of CPU per request or cron run and 128 MB of memory, so the refresh can't run there. Paid allows 30 seconds of CPU by default. A Free-plan version would need a much lighter fetch (for example Wikipedia's `api.php?action=parse&section=N`, about 130 KB per month, or streaming `HTMLRewriter`), and even then 10 ms isn't guaranteed.
+- **This needs the Workers Paid plan.** Refreshing releases parses one ~2.6 MB Wikipedia page per month with cheerio's slim parser, which measured about 0.1 s of CPU and 20 MB of heap per page on a laptop (Node). The Free plan allows 10 ms of CPU per request or cron run, so the refresh can't run there. Paid allows 30 seconds by default. A Free-plan version would need a much lighter fetch (for example Wikipedia's `api.php?action=parse&section=N`, about 130 KB per month, or streaming `HTMLRewriter`), and even then 10 ms isn't guaranteed.
 - If "Refresh releases" fails in production but works locally, check the Worker's logs first: `exceededCpu` or `exceededMemory` means the limits above (wrong plan), not Wikipedia. Only if the logs show a Wikipedia 403 or 429 is it blocking Cloudflare's outbound requests.
-- Subrequests: a Worker invocation may make 50 on the Free plan. A 1,700-artist Spotify sync uses about 35, which is why albums and Spotify run as separate crons.
+- Artists are matched to your followed list by exact lowercase name, same as the CLI, so a Wikipedia cell like "A and B" won't match a followed artist.
+- The page only knows about reminders it added itself. An album you added with the CLI shows **Add** until you press it; the app then finds the existing reminder and marks it **Added**.
+- If you delete a reminder in Google Calendar, Google keeps its id reserved. For an album added with the CLI, pressing **Add** in the app looks the event up and restores it. That restore path is only covered by stubbed tests, so check it against real Google after your first deploy. An album you added in the app and later delete in Google Calendar stays **Added** and can't be added again from the app.

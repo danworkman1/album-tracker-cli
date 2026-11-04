@@ -69,7 +69,7 @@ export async function requestToken(tokenUrl, params, providerName) {
       // Not JSON; fall through to the generic error.
     }
     if (params.grant_type === 'refresh_token' && errorCode === 'invalid_grant') {
-      throw codedError(`${providerName} authorization has expired or been revoked.`, 'reauth_required');
+      throw codedError(`${providerName} authorisation has expired or been revoked.`, 'reauth_required');
     }
     throw new Error(`${providerName} token request failed: ${text}`);
   }
@@ -84,7 +84,15 @@ export async function requestToken(tokenUrl, params, providerName) {
  * cached: one refresh per action is cheap for a single user.
  */
 export async function getAccessToken(env, { provider, providerName, tokenUrl, clientId, clientSecret }) {
-  const refreshToken = await loadRefreshToken(env, provider);
+  let refreshToken;
+  try {
+    refreshToken = await loadRefreshToken(env, provider);
+  } catch {
+    // It can't be decrypted (the encryption key changed), so it's as good as
+    // gone: clear it so the page offers to connect again.
+    await deleteRefreshToken(env, provider);
+    throw codedError(`${providerName} authorisation can't be read. Connect it again.`, 'reauth_required', provider);
+  }
   if (!refreshToken) {
     throw codedError(`${providerName} is not connected.`, 'not_connected', provider);
   }
@@ -107,7 +115,7 @@ export async function getAccessToken(env, { provider, providerName, tokenUrl, cl
     return data.access_token;
   } catch (err) {
     if (err.code === 'reauth_required') {
-      await deleteRefreshToken(env, provider);
+      await deleteRefreshToken(env, provider, refreshToken);
       err.provider = provider;
     }
     throw err;

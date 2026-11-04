@@ -122,7 +122,10 @@ test('add: success marks the album added in state', async () => {
 test('add: Google 409 is a duplicate, still shown as added', async () => {
   await seedAlbum();
   await saveRefreshToken(env, 'google', 'r');
-  stubProvider(GOOGLE_TOKEN_URL, () => new Response('exists', { status: 409 }));
+  // The insert is refused as a duplicate; the lookup shows the event is live.
+  stubProvider(GOOGLE_TOKEN_URL, (_url, init) =>
+    init.method === 'POST' ? new Response('exists', { status: 409 }) : json({ status: 'confirmed' })
+  );
 
   expect(await (await post(`/api/albums/${ID}/add`)).json()).toEqual({ status: 'duplicate' });
   expect((await (await get('/api/state')).json()).releases[0].added).toBe(true);

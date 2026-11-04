@@ -87,7 +87,9 @@ export async function refreshAlbums(env, { now = new Date(), fetchMonth = getUpc
 
   await setMeta(env.DB, 'loaded_months', JSON.stringify([...loaded]));
   await setMeta(env.DB, 'albums_warnings', JSON.stringify(warnings));
-  await setMeta(env.DB, 'albums_synced_at', String(nowMs));
+  // "Updated just now" must mean something loaded; if Wikipedia failed, the
+  // header keeps showing how old the data really is.
+  if (upserted > 0) await setMeta(env.DB, 'albums_synced_at', String(nowMs));
   return { upserted, warnings };
 }
 

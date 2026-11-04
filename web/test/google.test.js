@@ -56,13 +56,68 @@ test('adding an album creates the event and marks it added', async () => {
   expect(await addedAt()).toBeGreaterThan(0);
 });
 
-test('a 409 from Google counts as already added', async () => {
+// A 409 on insert means the id is taken. These stubs answer the insert (POST),
+// the lookup (GET) and the restore (PUT) separately.
+const EVENT_URL = `${EVENTS_URL}/${ID}`;
+const taken = ({ lookup, restore }) =>
+  stubGoogle((_url, init) => {
+    if (init.method === 'POST') return new Response('exists', { status: 409 });
+    if (init.method === 'PUT') return restore();
+    return lookup();
+  });
+const methodsCalled = (calls) => calls.filter((c) => c.url.startsWith('https://www.googleapis.com/')).map((c) => c.init.method);
+
+test('a 409 for an event that is still on the calendar counts as already added', async () => {
   await seedAlbum();
   await saveRefreshToken(env, 'google', 'r');
-  stubGoogle(() => new Response('exists', { status: 409 }));
+  const calls = taken({ lookup: () => json({ id: ID, status: 'confirmed' }), restore: () => json({}) });
 
   expect(await addAlbumToCalendar(env, ID)).toEqual({ status: 'duplicate' });
+  expect(methodsCalled(calls)).toEqual(['POST', 'GET']);
   expect(await addedAt()).toBeGreaterThan(0);
+});
+
+test('a 409 for a deleted (cancelled) event restores it', async () => {
+  await seedAlbum('2026-11-06');
+  await saveRefreshToken(env, 'google', 'r');
+  const calls = taken({ lookup: () => json({ id: ID, status: 'cancelled' }), restore: () => json({ id: ID }) });
+
+  expect(await addAlbumToCalendar(env, ID)).toEqual({ status: 'success' });
+
+  expect(methodsCalled(calls)).toEqual(['POST', 'GET', 'PUT']);
+  const put = calls.find((c) => c.init.method === 'PUT');
+  expect(put.url).toBe(EVENT_URL);
+  expect(put.body.status).toBe('confirmed');
+  expect(put.body.summary).toBe('Album Drop: Tool - New LP');
+  expect(put.body.start.dateTime).toBe('2026-11-06T09:00:00');
+  expect(await addedAt()).toBeGreaterThan(0);
+});
+
+test('a 409 where Google no longer returns the event restores it too', async () => {
+  await seedAlbum();
+  await saveRefreshToken(env, 'google', 'r');
+  const calls = taken({ lookup: () => new Response('gone', { status: 410 }), restore: () => json({ id: ID }) });
+
+  expect(await addAlbumToCalendar(env, ID)).toEqual({ status: 'success' });
+  expect(methodsCalled(calls)).toEqual(['POST', 'GET', 'PUT']);
+});
+
+test('if the lookup after a 409 fails the album is not marked added', async () => {
+  await seedAlbum();
+  await saveRefreshToken(env, 'google', 'r');
+  taken({ lookup: () => new Response('lookup blew up', { status: 500 }), restore: () => json({}) });
+
+  await expect(addAlbumToCalendar(env, ID)).rejects.toThrow(/Google Calendar API Error: lookup blew up/);
+  expect(await addedAt()).toBeNull();
+});
+
+test('if the restore fails the album is not marked added', async () => {
+  await seedAlbum();
+  await saveRefreshToken(env, 'google', 'r');
+  taken({ lookup: () => json({ status: 'cancelled' }), restore: () => new Response('restore blew up', { status: 500 }) });
+
+  await expect(addAlbumToCalendar(env, ID)).rejects.toThrow(/Google Calendar API Error: restore blew up/);
+  expect(await addedAt()).toBeNull();
 });
 
 test('adding twice keeps the first added_at', async () => {
@@ -72,7 +127,7 @@ test('adding twice keeps the first added_at', async () => {
   await addAlbumToCalendar(env, ID);
   await env.DB.prepare('UPDATE albums SET added_at = 111 WHERE id = ?').bind(ID).run();
 
-  stubGoogle(() => new Response('exists', { status: 409 }));
+  taken({ lookup: () => json({ status: 'confirmed' }), restore: () => json({}) });
   await addAlbumToCalendar(env, ID);
 
   expect(await addedAt()).toBe(111);

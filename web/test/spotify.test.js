@@ -105,6 +105,27 @@ test('a dead token is not recorded as a sync failure', async () => {
   expect(await getMeta(env.DB, 'spotify_error')).toBeNull();
 });
 
+test('connecting Spotify clears an old sync error', async () => {
+  await env.DB.prepare("INSERT INTO meta (key, value) VALUES ('spotify_error', 'Spotify authorisation expired — reconnect')").run();
+  stubFetch(() => json({ access_token: 'a', refresh_token: 'fresh', expires_in: 3600 }));
+
+  await exchangeSpotifyCode(env, { code: 'c', redirectUri: 'https://x.test/cb', verifier: 'v' });
+
+  expect(await getMeta(env.DB, 'spotify_error')).toBe('');
+});
+
+test('an empty followed list is refused and the previous list kept', async () => {
+  await saveRefreshToken(env, 'spotify', 'r');
+  await env.DB.prepare("INSERT INTO followed_artists (name_lower, name) VALUES ('keep', 'Keep')").run();
+  // A 200 with no artists is more likely a different account or an API quirk than "follows nobody".
+  stubProvider(TOKEN_URL, () => followingPage([]));
+
+  await expect(syncFollowedArtists(env)).rejects.toThrow(/no followed artists/i);
+
+  expect((await followed()).map((r) => r.name)).toEqual(['Keep']);
+  expect(await getMeta(env.DB, 'spotify_error')).toContain('Spotify sync failed: Spotify returned no followed artists');
+});
+
 test('sync replaces the old followed list', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
   await env.DB.prepare("INSERT INTO followed_artists (name_lower, name) VALUES ('gone', 'Gone')").run();
