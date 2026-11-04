@@ -14,15 +14,20 @@ async function runSpotifySync(env) {
   try {
     await syncFollowedArtists(env);
   } catch (err) {
-    const message =
-      err.code === 'reauth_required'
-        ? 'Spotify authorization expired — reconnect'
-        : `Spotify sync failed: ${err.message}`;
-    await setMeta(env.DB, 'spotify_error', message);
+    // syncFollowedArtists records every other failure itself. A dead token it
+    // leaves alone (the page shows "Connect Spotify"), but nobody is watching
+    // a cron, so say why the list stopped updating.
+    if (err.code === 'reauth_required') {
+      await setMeta(env.DB, 'spotify_error', 'Spotify authorization expired — reconnect');
+    }
   }
 }
 
-/** Anything that isn't the Spotify trigger refreshes albums. */
+/**
+ * Albums is the default so an unrecognised cron string still does something
+ * useful. The catch: if SPOTIFY_CRON drifts from wrangler.jsonc, the Spotify
+ * trigger quietly becomes a second album refresh, so change them together.
+ */
 export async function runScheduled(cron, env) {
   if (cron === SPOTIFY_CRON) {
     await runSpotifySync(env);

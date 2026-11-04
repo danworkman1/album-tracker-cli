@@ -1,3 +1,7 @@
+# Neither package's install script is needed: both ship prebuilt binaries as
+# platform packages, and the tests and wrangler run fine without them. Saying
+# so explicitly stops pnpm 11 failing `pnpm install` / `pnpm test` with
+# ERR_PNPM_IGNORED_BUILDS on a fresh checkout.
 allowBuilds:
-  esbuild: set this to true or false
-  workerd: set this to true or false
+  esbuild: false
+  workerd: false

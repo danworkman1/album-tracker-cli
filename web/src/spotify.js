@@ -1,4 +1,4 @@
-import { getAccessToken, requestToken } from './oauth.js';
+import { getAccessToken, needsReconnect, requestToken } from './oauth.js';
 import { saveRefreshToken, setMeta } from './store.js';
 
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -45,11 +45,27 @@ export async function exchangeSpotifyCode(env, { code, redirectUri, verifier }) 
 }
 
 /**
+ * Syncs followed artists, and records any failure for the page to show (the
+ * cron and the Re-sync button both come through here). A dead or missing token
+ * isn't recorded: the page already shows "Connect Spotify" for that.
+ */
+export async function syncFollowedArtists(env) {
+  try {
+    return await storeFollowedArtists(env);
+  } catch (err) {
+    if (!needsReconnect(err)) {
+      await setMeta(env.DB, 'spotify_error', `Spotify sync failed: ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+/**
  * Fetches every followed artist, then swaps them into D1 in a single batch so a
  * failed page leaves the previous list untouched. Returns how many artists
  * Spotify reported (artists sharing a name collapse to one row).
  */
-export async function syncFollowedArtists(env) {
+async function storeFollowedArtists(env) {
   const token = await getAccessToken(env, tokenConfig(env));
   const artists = [];
   let after = null;

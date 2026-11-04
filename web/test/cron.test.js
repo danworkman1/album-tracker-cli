@@ -4,10 +4,17 @@ import { ALBUMS_CRON, SPOTIFY_CRON, runScheduled } from '../src/cron.js';
 import worker from '../src/index.js';
 import { getMeta, hasRefreshToken, saveRefreshToken } from '../src/store.js';
 import { todayInZone, windowMonths } from '../src/window.js';
-import { htmlPage, json, monthTable, stubFetch, testEnv } from './helpers.js';
+import {
+  SPOTIFY_TOKEN_URL,
+  followingPage,
+  htmlPage,
+  json,
+  monthTable,
+  stubFetch,
+  stubProvider,
+  testEnv
+} from './helpers.js';
 
-const SPOTIFY_TOKEN = 'https://accounts.spotify.com/api/token';
-const following = (names) => json({ artists: { items: names.map((name) => ({ name, id: name })), next: null, cursors: { after: null } } });
 const followedNames = () => env.DB.prepare('SELECT name FROM followed_artists ORDER BY name').all().then((r) => r.results.map((x) => x.name));
 
 test('the spotify cron does nothing when Spotify is not connected', async () => {
@@ -19,7 +26,7 @@ test('the spotify cron does nothing when Spotify is not connected', async () => 
 test('the spotify cron syncs followed artists and clears any old error', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
   await env.DB.prepare("INSERT INTO meta (key, value) VALUES ('spotify_error', 'old problem')").run();
-  stubFetch((url) => (url === SPOTIFY_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : following(['Tool', 'Abba'])));
+  stubProvider(SPOTIFY_TOKEN_URL, () => followingPage(['Tool', 'Abba']));
 
   await runScheduled(SPOTIFY_CRON, testEnv());
 
@@ -39,7 +46,7 @@ test('the spotify cron records an expired authorisation instead of throwing', as
 
 test('the spotify cron records any other failure instead of throwing', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
-  stubFetch((url) => (url === SPOTIFY_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : new Response('down', { status: 500 })));
+  stubProvider(SPOTIFY_TOKEN_URL, () => new Response('down', { status: 500 }));
 
   await runScheduled(SPOTIFY_CRON, testEnv());
 

@@ -6,8 +6,8 @@ import { api } from '/api.js';
 const PROVIDER_NAMES = { google: 'Google', spotify: 'Spotify' };
 
 let state = null;
-const needsReconnect = new Set(); // providers a request just told us to reconnect
-let message = null; // one-off banner text (success or failure)
+const needsReconnect = new Set();
+let message = null;
 
 const $ = (id) => document.getElementById(id);
 

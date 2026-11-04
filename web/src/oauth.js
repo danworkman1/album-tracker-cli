@@ -18,9 +18,23 @@ export async function pkcePair() {
   return { verifier, challenge: toB64Url(new Uint8Array(digest)) };
 }
 
+export const STATE_COOKIE = 'oauth_state';
+export const VERIFIER_COOKIE = 'oauth_verifier';
+const COOKIE_PATH = '/auth';
+
 /** Set-Cookie value for the short-lived state/verifier cookies used during login. */
 export function stateCookie(name, value, isHttps) {
-  return `${name}=${value}; HttpOnly; SameSite=Lax; Path=/auth; Max-Age=600${isHttps ? '; Secure' : ''}`;
+  return `${name}=${value}; HttpOnly; SameSite=Lax; Path=${COOKIE_PATH}; Max-Age=600${isHttps ? '; Secure' : ''}`;
+}
+
+/** Set-Cookie value that expires a stateCookie. The Path must match or the browser keeps it. */
+export function clearCookie(name) {
+  return `${name}=; Max-Age=0; Path=${COOKIE_PATH}`;
+}
+
+/** A dead or missing connection: both mean "send the user through the connect flow again". */
+export function needsReconnect(err) {
+  return err.code === 'reauth_required' || err.code === 'not_connected';
 }
 
 export function readCookie(request, name) {

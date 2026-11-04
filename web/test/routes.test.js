@@ -3,25 +3,26 @@ import { expect, test } from 'vitest';
 import { handleRequest } from '../src/routes.js';
 import { getMeta, hasRefreshToken, loadRefreshToken, saveRefreshToken, setMeta } from '../src/store.js';
 import { todayInZone, windowMonths } from '../src/window.js';
-import { htmlPage, json, monthTable, stubFetch, testEnv } from './helpers.js';
+import {
+  ALBUM_ID as ID,
+  GOOGLE_TOKEN_URL,
+  SPOTIFY_TOKEN_URL,
+  followingPage,
+  htmlPage,
+  json,
+  monthTable,
+  seedAlbum,
+  stubFetch,
+  stubProvider,
+  testEnv
+} from './helpers.js';
 
 const ORIGIN = 'https://app.test';
-const ID = '3022de89cdaba1b64b5366b86565d6d3';
-const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
-const SPOTIFY_TOKEN = 'https://accounts.spotify.com/api/token';
 
 const send = (method, path, { origin = ORIGIN, headers = {}, e = testEnv() } = {}) =>
   handleRequest(new Request(ORIGIN + path, { method, headers: { ...(origin ? { Origin: origin } : {}), ...headers } }), e);
 const get = (path, opts) => send('GET', path, { origin: null, ...opts });
 const post = (path, opts) => send('POST', path, opts);
-
-const seedAlbum = (releaseDate = '2099-01-01') =>
-  env.DB.prepare(
-    `INSERT INTO albums (id, artist, artist_lower, album, release_date, genre, label, first_seen_at, last_seen_at)
-     VALUES (?, 'Tool', 'tool', 'New LP', ?, 'Prog', 'RCA', 1, 1)`
-  )
-    .bind(ID, releaseDate)
-    .run();
 
 test('state is empty and disconnected on a fresh database', async () => {
   const res = await get('/api/state');
@@ -109,7 +110,7 @@ test('add: a revoked Google token gives reauth_required and removes the token', 
 test('add: success marks the album added in state', async () => {
   await seedAlbum();
   await saveRefreshToken(env, 'google', 'r');
-  stubFetch((url) => (url === GOOGLE_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : json({ id: ID })));
+  stubProvider(GOOGLE_TOKEN_URL, () => json({ id: ID }));
 
   const res = await post(`/api/albums/${ID}/add`);
   expect(await res.json()).toEqual({ status: 'success' });
@@ -121,7 +122,7 @@ test('add: success marks the album added in state', async () => {
 test('add: Google 409 is a duplicate, still shown as added', async () => {
   await seedAlbum();
   await saveRefreshToken(env, 'google', 'r');
-  stubFetch((url) => (url === GOOGLE_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : new Response('exists', { status: 409 })));
+  stubProvider(GOOGLE_TOKEN_URL, () => new Response('exists', { status: 409 }));
 
   expect(await (await post(`/api/albums/${ID}/add`)).json()).toEqual({ status: 'duplicate' });
   expect((await (await get('/api/state')).json()).releases[0].added).toBe(true);
@@ -130,7 +131,7 @@ test('add: Google 409 is a duplicate, still shown as added', async () => {
 test('add: any other Google failure is a 500 and the album stays unadded', async () => {
   await seedAlbum();
   await saveRefreshToken(env, 'google', 'r');
-  stubFetch((url) => (url === GOOGLE_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : new Response('nope', { status: 500 })));
+  stubProvider(GOOGLE_TOKEN_URL, () => new Response('nope', { status: 500 }));
 
   const res = await post(`/api/albums/${ID}/add`);
   expect(res.status).toBe(500);
@@ -138,11 +139,9 @@ test('add: any other Google failure is a 500 and the album stays unadded', async
   expect((await (await get('/api/state')).json()).releases[0].added).toBe(false);
 });
 
-const followingPage = (names) => json({ artists: { items: names.map((name) => ({ name, id: name })), next: null, cursors: { after: null } } });
-
 test('spotify sync returns the count and stores the artists', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
-  stubFetch((url) => (url === SPOTIFY_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : followingPage(['Tool', 'Abba'])));
+  stubProvider(SPOTIFY_TOKEN_URL, () => followingPage(['Tool', 'Abba']));
 
   const res = await post('/api/spotify/sync');
   expect(await res.json()).toEqual({ count: 2 });
@@ -162,7 +161,7 @@ test('spotify sync with a revoked token is a 401 and removes the token', async (
 
 test('spotify sync failure is recorded for the page to show', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
-  stubFetch((url) => (url === SPOTIFY_TOKEN ? json({ access_token: 'at', expires_in: 3600 }) : new Response('down', { status: 500 })));
+  stubProvider(SPOTIFY_TOKEN_URL, () => new Response('down', { status: 500 }));
 
   const res = await post('/api/spotify/sync');
   expect(res.status).toBe(500);

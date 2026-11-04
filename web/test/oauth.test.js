@@ -1,6 +1,15 @@
 import { env } from 'cloudflare:workers';
 import { expect, test } from 'vitest';
-import { getAccessToken, pkcePair, randomToken, readCookie, requestToken, stateCookie } from '../src/oauth.js';
+import {
+  clearCookie,
+  getAccessToken,
+  needsReconnect,
+  pkcePair,
+  randomToken,
+  readCookie,
+  requestToken,
+  stateCookie
+} from '../src/oauth.js';
 import { deleteRefreshToken, loadRefreshToken, saveRefreshToken } from '../src/store.js';
 import { json, stubFetch } from './helpers.js';
 
@@ -35,6 +44,22 @@ test('stateCookie is HttpOnly and only Secure over https', () => {
   }
   expect(https).toContain('Secure');
   expect(http).not.toContain('Secure');
+});
+
+test('clearCookie expires a cookie on the same Path stateCookie sets it on', () => {
+  const cleared = clearCookie('oauth_state');
+  expect(cleared.startsWith('oauth_state=;')).toBe(true);
+  expect(cleared).toContain('Max-Age=0');
+  // The browser only drops a cookie when the Path matches the one it was set with.
+  const pathOf = (cookie) => cookie.match(/Path=[^;]+/)[0];
+  expect(pathOf(cleared)).toBe(pathOf(stateCookie('oauth_state', 'abc', true)));
+});
+
+test('needsReconnect is true for a dead or missing connection and nothing else', () => {
+  expect(needsReconnect(Object.assign(new Error('x'), { code: 'reauth_required' }))).toBe(true);
+  expect(needsReconnect(Object.assign(new Error('x'), { code: 'not_connected' }))).toBe(true);
+  expect(needsReconnect(Object.assign(new Error('x'), { code: 'not_found' }))).toBe(false);
+  expect(needsReconnect(new Error('x'))).toBe(false);
 });
 
 test('readCookie finds one of several cookies and returns null when absent', () => {

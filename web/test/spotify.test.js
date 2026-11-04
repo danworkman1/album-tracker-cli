@@ -2,12 +2,7 @@ import { env } from 'cloudflare:workers';
 import { expect, test } from 'vitest';
 import { exchangeSpotifyCode, spotifyAuthUrl, syncFollowedArtists } from '../src/spotify.js';
 import { getMeta, loadRefreshToken, saveRefreshToken } from '../src/store.js';
-import { json, stubFetch } from './helpers.js';
-
-const TOKEN_URL = 'https://accounts.spotify.com/api/token';
-const page = (names, after, next) => ({
-  artists: { items: names.map((name, i) => ({ name, id: `${name}-${i}` })), next, cursors: { after } }
-});
+import { SPOTIFY_TOKEN_URL as TOKEN_URL, followingPage, json, stubFetch, stubProvider } from './helpers.js';
 
 const followed = () => env.DB.prepare('SELECT * FROM followed_artists ORDER BY name_lower').all().then((r) => r.results);
 
@@ -42,12 +37,11 @@ test('exchangeSpotifyCode sends the PKCE verifier and stores the refresh token',
 
 test('sync follows the cursor across pages and fills the table', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
-  const calls = stubFetch((url) => {
-    if (url === TOKEN_URL) return json({ access_token: 'at', expires_in: 3600 });
+  const calls = stubProvider(TOKEN_URL, (url) => {
     const after = new URL(url).searchParams.get('after');
-    if (after === null) return json(page(['Tool', 'Björk'], 'c1', 'next-1'));
-    if (after === 'c1') return json(page(['Abba'], 'c2', 'next-2'));
-    return json(page(['Zed'], null, null));
+    if (after === null) return followingPage(['Tool', 'Björk'], 'c1', 'next-1');
+    if (after === 'c1') return followingPage(['Abba'], 'c2', 'next-2');
+    return followingPage(['Zed']);
   });
 
   const count = await syncFollowedArtists(env);
@@ -72,7 +66,7 @@ test('sync copes with artists that share a name and with more than 50 artists', 
   await saveRefreshToken(env, 'spotify', 'r');
   const names = Array.from({ length: 120 }, (_, i) => `Artist ${i}`);
   names.push('NIRVANA', 'Nirvana');
-  stubFetch((url) => (url === TOKEN_URL ? json({ access_token: 'at', expires_in: 3600 }) : json(page(names, null, null))));
+  stubProvider(TOKEN_URL, () => followingPage(names));
 
   await syncFollowedArtists(env);
 
@@ -84,19 +78,37 @@ test('sync copes with artists that share a name and with more than 50 artists', 
 test('a failed page leaves the existing followed artists alone', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
   await env.DB.prepare("INSERT INTO followed_artists (name_lower, name) VALUES ('keep', 'Keep')").run();
-  stubFetch((url) => {
-    if (url === TOKEN_URL) return json({ access_token: 'at', expires_in: 3600 });
-    return new URL(url).searchParams.get('after') === null ? json(page(['New'], 'c1', 'next')) : new Response('boom', { status: 500 });
-  });
+  stubProvider(TOKEN_URL, (url) =>
+    new URL(url).searchParams.get('after') === null
+      ? followingPage(['New'], 'c1', 'next')
+      : new Response('boom', { status: 500 })
+  );
 
   await expect(syncFollowedArtists(env)).rejects.toThrow(/Failed to fetch followed artists/);
   expect((await followed()).map((r) => r.name)).toEqual(['Keep']);
 });
 
+test('a failed sync records a message for the page to show', async () => {
+  await saveRefreshToken(env, 'spotify', 'r');
+  stubProvider(TOKEN_URL, () => new Response('down', { status: 500 }));
+
+  await expect(syncFollowedArtists(env)).rejects.toThrow();
+  expect(await getMeta(env.DB, 'spotify_error')).toContain('Spotify sync failed: Failed to fetch followed artists');
+});
+
+test('a dead token is not recorded as a sync failure', async () => {
+  await saveRefreshToken(env, 'spotify', 'dead');
+  stubFetch(() => json({ error: 'invalid_grant' }, 400));
+
+  await expect(syncFollowedArtists(env)).rejects.toMatchObject({ code: 'reauth_required' });
+  // "Not connected" already says it; a failure banner on top would be noise.
+  expect(await getMeta(env.DB, 'spotify_error')).toBeNull();
+});
+
 test('sync replaces the old followed list', async () => {
   await saveRefreshToken(env, 'spotify', 'r');
   await env.DB.prepare("INSERT INTO followed_artists (name_lower, name) VALUES ('gone', 'Gone')").run();
-  stubFetch((url) => (url === TOKEN_URL ? json({ access_token: 'at', expires_in: 3600 }) : json(page(['Fresh'], null, null))));
+  stubProvider(TOKEN_URL, () => followingPage(['Fresh']));
 
   await syncFollowedArtists(env);
   expect((await followed()).map((r) => r.name)).toEqual(['Fresh']);

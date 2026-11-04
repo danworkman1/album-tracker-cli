@@ -2,25 +2,14 @@ import { env } from 'cloudflare:workers';
 import { expect, test } from 'vitest';
 import { addAlbumToCalendar, buildEventBody, exchangeGoogleCode, googleAuthUrl } from '../src/google.js';
 import { loadRefreshToken, saveRefreshToken } from '../src/store.js';
-import { json, stubFetch } from './helpers.js';
+import { ALBUM_ID as ID, GOOGLE_TOKEN_URL as TOKEN_URL, json, seedAlbum, stubFetch, stubProvider } from './helpers.js';
 
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
-const ID = '3022de89cdaba1b64b5366b86565d6d3';
-
-const seedAlbum = () =>
-  env.DB.prepare(
-    `INSERT INTO albums (id, artist, artist_lower, album, release_date, genre, label, first_seen_at, last_seen_at)
-     VALUES (?, 'Tool', 'tool', 'New LP', '2026-11-06', 'Prog', 'RCA', 1, 1)`
-  )
-    .bind(ID)
-    .run();
 
 const addedAt = () => env.DB.prepare('SELECT added_at FROM albums WHERE id = ?').bind(ID).first().then((r) => r.added_at);
 
-// Token endpoint always succeeds; the events endpoint answers with `eventsResponse`.
-const stubGoogle = (eventsResponse) =>
-  stubFetch((url) => (url === TOKEN_URL ? json({ access_token: 'at', expires_in: 3600 }) : eventsResponse()));
+// The events endpoint answers with `eventsResponse`.
+const stubGoogle = (eventsResponse) => stubProvider(TOKEN_URL, eventsResponse);
 
 test('googleAuthUrl asks for calendar.events with offline access and forced consent', () => {
   const url = new URL(googleAuthUrl(env, { redirectUri: 'https://x.test/auth/google/callback', state: 'st' }));

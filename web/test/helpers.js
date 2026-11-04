@@ -61,3 +61,28 @@ export function stubFetch(handler) {
   });
   return calls;
 }
+
+// Provider endpoints as literals, so tests check the code against them rather
+// than against the constants the code itself defines.
+export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+export const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
+
+/** Stubs fetch for a provider: its token endpoint always succeeds, everything else goes to `apiResponse(url, init)`. */
+export const stubProvider = (tokenUrl, apiResponse) =>
+  stubFetch((url, init) => (url === tokenUrl ? json({ access_token: 'at', expires_in: 3600 }) : apiResponse(url, init)));
+
+/** One page of Spotify's /me/following response. */
+export const followingPage = (names, after = null, next = null) =>
+  json({ artists: { items: names.map((name, i) => ({ name, id: `${name}-${i}` })), next, cursors: { after } } });
+
+/** The md5 of "tool-new lp-2026-11-06": the id (and Google event id) of the album seedAlbum inserts. */
+export const ALBUM_ID = '3022de89cdaba1b64b5366b86565d6d3';
+
+/** Inserts the one album handler tests share: Tool, "New LP". */
+export const seedAlbum = (releaseDate = '2099-01-01') =>
+  env.DB.prepare(
+    `INSERT INTO albums (id, artist, artist_lower, album, release_date, genre, label, first_seen_at, last_seen_at)
+     VALUES (?, 'Tool', 'tool', 'New LP', ?, 'Prog', 'RCA', 1, 1)`
+  )
+    .bind(ALBUM_ID, releaseDate)
+    .run();

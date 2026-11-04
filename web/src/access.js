@@ -5,14 +5,11 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 // (which bypasses Access) gets a 403 instead of the app.
 const HEADER = 'Cf-Access-Jwt-Assertion';
 
-let remoteKeys = null;
-let remoteKeysFor = null;
+// Built once per isolate and reused so jose can cache Cloudflare's signing keys.
+let remoteKeys;
 
 function defaultKeys(env) {
-  if (remoteKeysFor !== env.ACCESS_TEAM_DOMAIN) {
-    remoteKeys = createRemoteJWKSet(new URL(`https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`));
-    remoteKeysFor = env.ACCESS_TEAM_DOMAIN;
-  }
+  remoteKeys ??= createRemoteJWKSet(new URL(`https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`));
   return remoteKeys;
 }
 
